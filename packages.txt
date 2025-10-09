@@ -7,3 +7,4 @@ fonts-nanum
 fonts-unfonts-core
 fonts-noto-cjk
 fonts-baekmuk
+poppler-utils
