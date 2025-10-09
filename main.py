@@ -1,4 +1,4 @@
-# main.py (롤백 완료)
+# main.py
 import streamlit as st
 import json
 import re
@@ -18,25 +18,20 @@ uploaded_file = st.sidebar.file_uploader("분석할 RFP PDF 파일 업로드", t
 
 # --- 3. 핵심 로직: 파일 처리 및 초기 분석 (한번에 실행) ---
 if uploaded_file:
-    # 파일이 바뀌면 session_state를 초기화
     if st.session_state.get("uploaded_filename") != uploaded_file.name:
         st.session_state.clear()
         st.session_state.uploaded_filename = uploaded_file.name
 
-    # 아직 초기 결과물이 없다면 생성
     if "summary" not in st.session_state:
         with st.spinner("AI가 PDF를 분석하고 초기 보고서를 생성 중입니다... (시간이 걸릴 수 있습니다)"):
-            summary, ksf, outline = generate_initial_results(uploaded_file)
+            summary, ksf, outline, vector_db = generate_initial_results(uploaded_file)
             
-            if summary and ksf and outline:
+            if summary and ksf and outline and vector_db:
                 st.session_state.summary = summary
                 st.session_state.ksf = ksf
                 st.session_state.presentation_outline = outline
+                st.session_state.vector_db = vector_db # 생성된 DB를 세션에 저장
                 st.session_state.messages = []
-                # DB는 채팅 시 필요하므로 캐시된 결과를 다시 로드하지 않도록 세션에 저장
-                # (주의: DB 재생성을 막기 위한 트릭. generate_initial_results가 캐시되어 있어도 DB 객체는 매번 새로 생성될 수 있음)
-                # 이 부분은 개선이 필요할 수 있으나, 현재 구조에서는 채팅 기능 유지를 위해 필요.
-                # 더 나은 방법: DB 생성 로직을 분리하고 @st.cache_resource로 캐시한 뒤 main에서 직접 호출
                 st.sidebar.success("초기 분석이 완료되었습니다!")
                 st.rerun()
             else:
@@ -74,28 +69,8 @@ if "summary" in st.session_state:
             
             with st.chat_message("assistant"):
                 with st.spinner("요청을 분석하고 문서를 수정하는 중..."):
-                    # 채팅을 위한 DB 재생성 (비효율적이지만 현재 구조에서 가장 간단한 방법)
-                    from langchain.text_splitter import RecursiveCharacterTextSplitter
-                    from langchain_core.documents import Document
-                    import fitz
-
-                    file_bytes = uploaded_file.getvalue()
-                    doc = fitz.open(stream=file_bytes, filetype="pdf")
-                    all_text = [page.get_text() for page in doc]
-                    doc.close()
-                    full_text = "\n\n".join(all_text)
-                    
-                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
-                    chunks = text_splitter.split_text(full_text)
-                    doc_chunks = [Document(page_content=t) for t in chunks]
-                    
-                    from langchain_openai import OpenAIEmbeddings
-                    from langchain_community.vectorstores import FAISS
-                    embeddings = OpenAIEmbeddings(api_key=st.secrets["OPENAI_GPT_API_KEY"])
-                    vector_db = FAISS.from_documents(doc_chunks, embeddings)
-
                     response_text = handle_chat_interaction(
-                        user_prompt, vector_db, st.session_state.summary,
+                        user_prompt, st.session_state.vector_db, st.session_state.summary,
                         st.session_state.ksf, st.session_state.presentation_outline
                     )
                     try:
