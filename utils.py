@@ -1,8 +1,7 @@
-# utils.py (롤백 완료)
+# utils.py
 import os
 import re
 import json
-import tempfile
 import pandas as pd
 import io
 import streamlit as st
@@ -36,29 +35,27 @@ def _create_db_from_text(text_chunks):
     return vector_db
 
 # --- 한 번에 모든 결과를 생성하는 메인 함수 ---
-@st.cache_data(show_spinner=False) # 스피너는 main.py에서 제어
+@st.cache_data(show_spinner=False)
 def generate_initial_results(_uploaded_file):
-    # 1. 텍스트 추출
     full_text = _extract_text_from_pdf(_uploaded_file)
     if not full_text:
-        return None, None, None
+        return None, None, None, None
 
-    # 2. 텍스트 분할 및 DB 생성
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
     chunks = text_splitter.split_text(full_text)
     vector_db = _create_db_from_text(chunks)
     
     llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     
-    # 3. 요약 생성 (map_reduce)
-    summary_chain = load_qa_chain(llm, chain_type="map_reduce")
-    summary_docs = vector_db.similarity_search("RFP의 전체 내용을 상세히 요약해 주세요.", k=10)
-    summary = summary_chain.invoke({"input_documents": summary_docs, "question": "제공된 RFP 문서의 각 부분을 종합하여, 아래 템플릿에 맞춰 상세한 요약 보고서를 한국어로 작성해 주십시오:\n\n" + SUMMARY_PROMPT_TEMPLATE})["output_text"]
+    # 3. 요약 생성 (refine 전략 적용)
+    summary_chain = load_qa_chain(llm, chain_type="refine")
+    summary_docs = vector_db.similarity_search("RFP의 전체 내용을 상세히 요약해 주세요.", k=15)
+    summary = summary_chain.invoke({"input_documents": summary_docs, "question": "제공된 RFP 문서의 첫 부분을 바탕으로, 아래 템플릿에 맞춰 요약 보고서 초안을 한국어로 작성해 주십시오. 이후 제공되는 내용으로 계속해서 보고서를 완성해 나갈 것입니다:\n\n" + SUMMARY_PROMPT_TEMPLATE})["output_text"]
 
-    # 4. KSF 생성 (map_reduce)
-    ksf_chain = load_qa_chain(llm, chain_type="map_reduce")
-    ksf_docs = vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=10)
-    ksf = ksf_chain.invoke({"input_documents": ksf_docs, "question": "제공된 RFP 문서의 내용을 종합적으로 분석하여, 이 사업 수주를 위한 핵심 성공 요소(KSF) 5-6가지를 구체적으로 도출하고 각각에 대해 간략히 설명해 주십시오."})["output_text"]
+    # 4. KSF 생성 (refine 전략 적용)
+    ksf_chain = load_qa_chain(llm, chain_type="refine")
+    ksf_docs = vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=15)
+    ksf = ksf_chain.invoke({"input_documents": ksf_docs, "question": "제공된 RFP 문서의 내용을 바탕으로, 이 사업 수주를 위한 핵심 성공 요소(KSF) 초안을 작성하십시오. 이후 제공되는 내용으로 계속해서 분석을 구체화할 것입니다."})["output_text"]
 
     # 5. 발표자료 목차 생성 (stuff)
     outline_retriever = vector_db.as_retriever()
@@ -74,11 +71,10 @@ def generate_initial_results(_uploaded_file):
         "context": context_text
     })["output_text"]
 
-    return summary, ksf, presentation_outline
+    return summary, ksf, presentation_outline, vector_db # 채팅을 위해 vector_db도 반환
 
-# --- 채팅 및 엑셀 변환 함수 (변경 없음) ---
+# --- 채팅 및 엑셀 변환 함수 ---
 def handle_chat_interaction(user_input, vector_db_in_session, current_summary, current_ksf, current_outline):
-    # DB 재생성을 막기 위해 세션의 DB를 직접 사용
     llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     retriever = vector_db_in_session.as_retriever()
     prompt = PromptTemplate(
@@ -105,3 +101,4 @@ def to_excel(summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
