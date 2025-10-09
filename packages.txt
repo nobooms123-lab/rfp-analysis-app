@@ -6,3 +6,6 @@ poppler-utils
 tesseract-ocr
 tesseract-ocr-kor
 fonts-nanum
+fonts-unfonts-core
+fonts-noto-cjk
+fonts-baekmuk
