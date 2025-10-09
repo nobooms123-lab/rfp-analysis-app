@@ -1,4 +1,4 @@
-# utils.py (수정 완료)
+# utils.py
 import os
 import re
 import json
@@ -21,6 +21,7 @@ def extract_text_from_pdf(uploaded_file):
         tmp_file.write(uploaded_file.getvalue())
         tmp_file_path = tmp_file.name
     try:
+        # hi_res 전략은 OCR을 포함하여 이미지 기반 PDF도 처리하려고 시도합니다.
         loader = UnstructuredPDFLoader(tmp_file_path, mode="elements", strategy="hi_res", languages=['kor', 'eng'])
         pages = loader.load()
         full_text_raw = "\n\n".join([p.page_content for p in pages])
@@ -45,26 +46,29 @@ def create_db_from_text(_text_chunks):
     return vector_db
 
 # --- 2, 3, 4단계 개별 함수 ---
+# (선제적 조치) 대용량 PDF 처리를 위해 chain_type을 "map_reduce"로 변경하여 안정성 확보
 def generate_summary(vector_db):
     llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
-    retriever = vector_db.as_retriever()
-    prompt = PromptTemplate.from_template(SUMMARY_PROMPT_TEMPLATE)
-    chain = load_qa_chain(llm, chain_type="stuff", prompt=prompt)
-    docs = retriever.get_relevant_documents("RFP의 전체 내용을 상세히 요약해 주세요.")
-    result = chain.invoke({"input_documents": docs, "question": "RFP의 전체 내용을 상세히 요약해 주세요."})
+    # map_reduce 방식을 사용하도록 변경
+    chain = load_qa_chain(llm, chain_type="map_reduce")
+    # 더 많은 청크(k=10)를 가져와 종합적인 분석을 유도
+    docs = vector_db.similarity_search("RFP의 전체 내용을 상세히 요약해 주세요.", k=10)
+    # map_reduce에 맞는 명확한 지시사항을 question에 포함
+    result = chain.invoke({"input_documents": docs, "question": "제공된 RFP 문서의 각 부분을 종합하여, 아래 템플릿에 맞춰 상세한 요약 보고서를 한국어로 작성해 주십시오:\n\n" + SUMMARY_PROMPT_TEMPLATE})
     return result["output_text"]
 
 def generate_ksf(vector_db):
     llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
-    retriever = vector_db.as_retriever()
-    prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
-    chain = load_qa_chain(llm, chain_type="stuff", prompt=prompt)
-    docs = retriever.get_relevant_documents("이 사업의 핵심 성공 요소를 분석해 주세요.")
-    result = chain.invoke({"input_documents": docs, "question": "이 사업의 핵심 성공 요소를 분석해 주세요."})
+    # map_reduce 방식을 사용하도록 변경
+    chain = load_qa_chain(llm, chain_type="map_reduce")
+    docs = vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=10)
+    result = chain.invoke({"input_documents": docs, "question": "제공된 RFP 문서의 내용을 종합적으로 분석하여, 이 사업 수주를 위한 핵심 성공 요소(KSF) 5-6가지를 구체적으로 도출하고 각각에 대해 간략히 설명해 주십시오."})
     return result["output_text"]
 
 def generate_outline(vector_db, summary, ksf):
     llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    # 발표자료 목차는 전체적인 맥락이 매우 중요하므로 stuff 방식을 유지.
+    # 이미 요약된 summary와 ksf를 사용하므로 입력 텍스트가 줄어들어 메모리 부담이 적음.
     retriever = vector_db.as_retriever()
     prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
     chain = load_qa_chain(llm, chain_type="stuff", prompt=prompt)
