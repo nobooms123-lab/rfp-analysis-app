@@ -1,2 +1,9 @@
+# 그래픽 라이브러리 (해결 완료)
 libgl1-mesa-glx
+
+# PDF 처리 도구 (해결 완료)
 poppler-utils
+
+# OCR 엔진 및 한국어 언어팩 (선제적 조치)
+tesseract-ocr
+tesseract-ocr-kor
