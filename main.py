@@ -1,8 +1,8 @@
-# main.py
+# main.py (캐시 분리 최종 완료)
 import streamlit as st
 import json
 import re
-from utils import generate_initial_results, handle_chat_interaction, to_excel
+from utils import get_vector_db, generate_reports, handle_chat_interaction, to_excel
 
 # --- 1. 기본 설정 및 페이지 구성 ---
 st.set_page_config(page_title="대화형 제안서 분석 도우미", layout="wide")
@@ -22,21 +22,29 @@ if uploaded_file:
         st.session_state.clear()
         st.session_state.uploaded_filename = uploaded_file.name
 
-    if "summary" not in st.session_state:
-        with st.spinner("AI가 PDF를 분석하고 초기 보고서를 생성 중입니다... (시간이 걸릴 수 있습니다)"):
-            summary, ksf, outline, vector_db = generate_initial_results(uploaded_file)
+    # 1. Vector DB 생성/로드 (@st.cache_resource)
+    vector_db = get_vector_db(uploaded_file)
+    
+    if vector_db:
+        st.session_state.vector_db = vector_db # 채팅을 위해 세션에 저장
+
+        # 2. 보고서 생성/로드 (@st.cache_data)
+        if "summary" not in st.session_state:
+            summary, ksf, outline = generate_reports(vector_db)
             
-            if summary and ksf and outline and vector_db:
+            if summary and ksf and outline:
                 st.session_state.summary = summary
                 st.session_state.ksf = ksf
                 st.session_state.presentation_outline = outline
-                st.session_state.vector_db = vector_db # 생성된 DB를 세션에 저장
                 st.session_state.messages = []
                 st.sidebar.success("초기 분석이 완료되었습니다!")
                 st.rerun()
             else:
-                st.error("분석 중 오류가 발생했습니다. 파일을 다시 확인하거나 다른 파일로 시도해주세요.")
+                st.error("분석 보고서 생성 중 오류가 발생했습니다.")
                 st.stop()
+    else:
+        st.error("PDF 파일 분석 중 오류가 발생했습니다. 파일을 다시 확인해주세요.")
+        st.stop()
 else:
     st.info("사이드바에서 RFP PDF 파일을 업로드하면 분석이 시작됩니다.")
     st.session_state.clear()
