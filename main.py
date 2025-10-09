@@ -3,6 +3,7 @@ import streamlit as st
 import json
 import re
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document # Document 클래스 임포트
 from utils import (
     extract_text_from_pdf, create_db_from_text,
     generate_summary, generate_ksf, generate_outline,
@@ -61,7 +62,10 @@ if uploaded_file:
                         # DB 생성 (요약 단계에서 최초 1회 실행)
                         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
                         chunks = text_splitter.split_text(st.session_state.full_text)
-                        doc_chunks = [type('Document', (object,), {"page_content": t, "metadata": {}}) for t in chunks]
+                        
+                        # LangChain의 공식 Document 객체를 사용하여 doc_chunks 생성
+                        doc_chunks = [Document(page_content=t) for t in chunks]
+                        
                         st.session_state.vector_db = create_db_from_text(doc_chunks)
                         
                         # 요약 생성
