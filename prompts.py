@@ -1,11 +1,12 @@
 # prompts.py
 
-# 각 정보 그룹을 추출하기 위한 범용 프롬프트 템플릿
+# '제안서 요약' 생성을 위한 정보 추출 전용 프롬프트
 EXTRACT_INFO_PROMPT_TEMPLATE = """
 [CRITICAL INSTRUCTION]
 You are a highly precise information extraction agent. Your ONLY task is to read the 'Context' below and extract the information for the following fields: {fields_to_extract}.
+- The 'Context' provided is a small, relevant snippet from a larger document.
 - Extract the information VERBATIM from the document as much as possible.
-- If you cannot find the information for a field, the value MUST be "찾을 수 없음".
+- If you cannot find the information for a field within the given 'Context', the value MUST be "찾을 수 없음".
 - Your output MUST be ONLY a valid JSON object, with no other text before or after it.
 
 **Context:** 
@@ -18,9 +19,10 @@ You are a highly precise information extraction agent. Your ONLY task is to read
 }}
 """
 
+# '핵심 성공 요소' 및 '발표자료 목차' 생성을 위한 창의적 분석 프롬프트
 KSF_PROMPT_TEMPLATE = """
 [CRITICAL INSTRUCTION]
-You are an expert business analyst. You MUST answer based SOLELY on the provided 'Context'.
+You are an expert business analyst. You MUST answer based SOLELY on the provided 'Context'. The context is a rich summary of a Request for Proposal (RFP). Your task is to identify the most critical success factors (KSFs) for winning the project.
 
 **Context:**
 {context}
@@ -31,7 +33,7 @@ You are an expert business analyst. You MUST answer based SOLELY on the provided
 
 OUTLINE_PROMPT_TEMPLATE = """
 [CRITICAL INSTRUCTION]
-You are a world-class proposal strategist. Your task is to create a presentation outline based SOLELY on the documents provided below.
+You are a world-class proposal strategist. Your task is to create a presentation outline based SOLELY on the documents provided below. Your creativity should be in how you frame and present the information, not in inventing new information.
 
 **Input Documents:**
 1.  **RFP Context:** {context}
@@ -45,7 +47,7 @@ Generate a complete, strategic presentation outline in Korean.
 ## Ⅰ. 사업의 이해 (5 페이지)
 _이 파트는 평가위원의 마음을 사로잡는 가장 중요한 부분입니다. 당신의 전략적 통찰력을 발휘하여 고객을 감동시킬 5페이지 분량의 오프닝 '서사'를 직접 구축하십시오._
 **지시사항:**
-1.  **사업 유형 판단 (가장 중요):** 'RFP Context'를 분석하여 이 사업이 **(A) 완전히 새로운 시스템을 구축**하는 것인지, **(B) 기존 시스템을 개선/교체**하는 것인지 먼저 판단하십시오. 이 판단은 스토리라인의 기반이 됩니다.
+1.  **사업 유형 판단 (가장 중요):** 'RFP Context'를 분석하여 이 사업이 **(A) 완전히 새로운 시스템을 구축**하는 것인지, **(B) 기존 시스템을 개선/교체**하는 것인지 먼저 판단하십시오.
 2.  **판단에 따른 맞춤형 스토리라인 구성:**
     *   **(A) '신규 시스템 구축'으로 판단될 경우:** '기회'와 '미래 비전' 중심의 서사를 만드십시오.
     *   **(B) '기존 시스템 고도화'로 판단될 경우:** '문제 해결'과 '혁신' 중심의 서사를 만드십시오.
@@ -60,14 +62,15 @@ _우리가 이 사업의 본질을 정확히 꿰뚫고 있음을 증명하는 �
 _우리가 어떻게 핵심 성공 요소를 완벽하게 충족시키며, 앞서 제시한 비전을 현실로 만들 것인지 증명하는 파트입니다. 당신의 전략가적 역량을 다시 한번 발휘하여, 우리 회사만의 독창적인 사업 추진 전략 목차와 핵심 메시지를 7-8개 항목으로 직접 구성해 주십시오._
 **지시사항:**
 1.  **독창적 헤드라인:** '수행 방안', '품질 관리' 같은 일반적인 제목 대신, 고객의 이점과 우리의 차별성을 강조하는 구체적이고 강력한 헤드라인을 만드십시오.
-2.  **논리적 흐름:** 당신이 구성하는 7-8개의 전략은 평가위원이 듣기에 가장 설득력 있는 순서로 배열되어야 합니다.
+2.  **논리적 흐름:** 당신이 구성하는 7~8개의 전략은 평가위원이 듣기에 가장 설득력 있는 순서로 배열되어야 합니다.
 3.  **KSF와 완벽한 연계:** 각 전략이 어떻게 'Ⅱ. 핵심 성공 요소'에서 정의된 KSF를 달성하는지 명확히 보여줘야 합니다.
 4.  **출력 형식:** 각 전략 항목을 "**1. [당신이 만든 전략 헤드라인]:**" 형식으로 시작하고, 그 아래에 해당 슬라이드에서 전달할 핵심 메시지를 2~3개의 글머리 기호(-)로 요약하여 작성하십시오.
 **(여기에 당신의 창의적인 '사업 추진 전략'을 구성하여 제시하세요.)**
 ---
 """
+
 EDITOR_PROMPT_TEMPLATE = """
-You are an intelligent text editor assistant. Your primary function is to modify the content of a given document section based on a user's request, while strictly preserving its original structure and formatting.
+You are an intelligent text editor assistant. Your primary function is to modify the content of a given document section based on a user's request.
 **CRITICAL RULES:**
 1.  **PRESERVE STRUCTURE:** You MUST NOT change, add, or remove any Markdown formatting.
 2.  **CONTENT-ONLY MODIFICATION:** Only alter the textual content to reflect the user's request.
