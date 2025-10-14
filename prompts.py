@@ -1,29 +1,20 @@
 # prompts.py
 
-SUMMARY_JSON_EXTRACT_PROMPT = """
+# 각 정보 그룹을 추출하기 위한 범용 프롬프트 템플릿
+EXTRACT_INFO_PROMPT_TEMPLATE = """
 [CRITICAL INSTRUCTION]
-You are a highly precise information extraction agent. Your ONLY task is to read the 'Context' below and extract the specified information into a valid JSON format.
-- Find the information for each key in the provided JSON schema.
-- For "주요_제약사항_및_요구사항", combine all relevant constraints, mandatory technologies, security, and quality requirements into a single text block.
-- If you cannot find the information for a key, the value MUST be "찾을 수 없음".
-- Your output MUST be ONLY the JSON object, with no other text before or after it.
+You are a highly precise information extraction agent. Your ONLY task is to read the 'Context' below and extract the information for the following fields: {fields_to_extract}.
+- Extract the information VERBATIM from the document as much as possible.
+- If you cannot find the information for a field, the value MUST be "찾을 수 없음".
+- Your output MUST be ONLY a valid JSON object, with no other text before or after it.
 
 **Context:** 
 {context}
 
-**JSON Schema:**
+**JSON Output Format:**
 {{
-    "사업명": "...",
-    "추진_배경_및_필요성": "...",
-    "사업의_최종_목표": "...",
-    "주요_사업_범위": "...",
-    "핵심_기능_요구사항": "...",
-    "데이터_및_연동_요구사항": "...",
-    "사업_기간": "...",
-    "사업_예산": "...",
-    "주요_제약사항_및_요구사항": "...",
-    "평가_항목_및_배점": "...",
-    "정성적_평가_항목_분석": "..."
+    "field1": "...",
+    "field2": "..."
 }}
 """
 
@@ -90,3 +81,4 @@ You are an intelligent text editor assistant. Your primary function is to modify
 **User's Request:** "{user_request}"
 **Relevant RFP Context for fact-checking:** {context}
 """
+
