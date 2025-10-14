@@ -1,4 +1,4 @@
-## utils.py
+# utils.py
 import os
 import re
 import json
@@ -14,7 +14,6 @@ from langchain.prompts import PromptTemplate
 from langchain.chains.question_answering import load_qa_chain
 from prompts import SUMMARY_PROMPT_TEMPLATE, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT_TEMPLATE, EDITOR_PROMPT_TEMPLATE
 
-# --- 1. 리소스 생성 함수 (@st.cache_resource 사용) ---
 @st.cache_resource(show_spinner="PDF 분석 및 데이터베이스 생성 중...")
 def get_vector_db(_uploaded_file):
     try:
@@ -39,29 +38,27 @@ def get_vector_db(_uploaded_file):
     
     return vector_db, full_text
 
-# --- 2. 데이터 생성 함수 (@st.cache_data 사용) ---
+# <<< 핵심 변경: 함수가 전체 텍스트(_full_text)를 직접 받도록 수정 >>>
 @st.cache_data(show_spinner="AI가 분석 보고서를 생성 중입니다...")
-def generate_reports(_vector_db, run_id=0):
-    if _vector_db is None:
+def generate_reports(_vector_db, _full_text, run_id=0):
+    if _vector_db is None or _full_text is None:
         return None, None, None
     
     llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
         
-    # <<< 핵심 변경점: 요약 생성을 위한 문서 검색 전략을 2단계로 분리하여 정확도 극대화 >>>
-    # 1단계: 사업명, 기간 등 놓치기 쉬운 '개요 정보'를 명시적으로 검색
-    summary_overview_docs = _vector_db.similarity_search(
-        "사업명, 사업기간, 수요기관, 추진배경 및 필요성", 
-        k=3
-    )
-    # 2단계: 사업 범위, 요구사항 등 '핵심 내용'을 검색
-    summary_detail_docs = _vector_db.similarity_search(
+    # --- 요약 생성 (가장 확실한 방식으로 변경) ---
+    # 1. 문서의 맨 앞부분 4000자를 강제로 할당 (사업명, 기간 등 핵심 정보 보장)
+    header_content = _full_text[:4000]
+    header_doc = Document(page_content=header_content)
+
+    # 2. 나머지 세부 정보를 보충하기 위해 일부 문서 검색
+    detail_docs = _vector_db.similarity_search(
         "사업 범위, 주요 요구사항, 사업 수행 조건, 제약사항, 평가 기준",
-        k=7
+        k=5
     )
-    # 3단계: 두 검색 결과를 합치고 중복 제거하여 AI에게 전달할 최종 문서 목록 생성
-    combined_docs = summary_overview_docs + summary_detail_docs
-    unique_docs = {doc.page_content: doc for doc in combined_docs}.values()
-    summary_docs = list(unique_docs)
+    
+    # 3. '헤더 문서'를 최우선으로 하여 AI에게 전달할 최종 문서 목록 생성
+    summary_docs = [header_doc] + detail_docs
 
     summary_prompt = PromptTemplate.from_template(SUMMARY_PROMPT_TEMPLATE)
     summary_chain = load_qa_chain(llm, chain_type="stuff", prompt=summary_prompt)
@@ -70,7 +67,7 @@ def generate_reports(_vector_db, run_id=0):
         "question": "제공된 Context를 바탕으로, 템플릿에 맞춰 상세 요약 보고서를 작성해 주십시오."
     })["output_text"]
 
-    # 2-2. KSF 생성 (stuff 방식)
+    # --- KSF 생성 (기존 방식 유지) ---
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
     ksf_chain = load_qa_chain(llm, chain_type="stuff", prompt=ksf_prompt)
     ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
@@ -79,7 +76,7 @@ def generate_reports(_vector_db, run_id=0):
         "question": "문서 내용을 바탕으로 핵심 성공 요소를 분석해줘."
     })["output_text"]
 
-    # 2-3. 발표자료 목차 생성 (stuff 방식)
+    # --- 발표자료 목차 생성 (기존 방식 유지) ---
     outline_retriever = _vector_db.as_retriever()
     outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
     outline_chain = load_qa_chain(llm, chain_type="stuff", prompt=outline_prompt)
@@ -95,7 +92,6 @@ def generate_reports(_vector_db, run_id=0):
 
     return summary, ksf, presentation_outline
 
-# --- 채팅 및 엑셀 변환 함수 (변경 없음) ---
 def handle_chat_interaction(user_input, vector_db_in_session, current_summary, current_ksf, current_outline):
     llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     retriever = vector_db_in_session.as_retriever()
@@ -118,12 +114,9 @@ def to_excel(summary, ksf, outline):
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_summary = pd.DataFrame([summary.replace("\n", "\r\n")], columns=["내용"])
         df_summary.to_excel(writer, sheet_name='제안서 요약', index=False)
-        
         df_ksf = pd.DataFrame([ksf.replace("\n", "\r\n")], columns=["내용"])
         df_ksf.to_excel(writer, sheet_name='핵심 성공 요소', index=False)
-        
         df_outline = pd.DataFrame([outline.replace("\n", "\r\n")], columns=["내용"])
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
-        
     processed_data = output.getvalue()
     return processed_data
