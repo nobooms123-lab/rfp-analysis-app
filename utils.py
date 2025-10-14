@@ -1,3 +1,14 @@
+
+---
+
+### **2단계: `utils.py` 파일 수정 (불필요한 질문 전달 중단)**
+
+`utils.py` 파일을 열고, **기존 내용을 모두 삭제**한 뒤 아래 코드로 교체해주세요.
+
+**핵심 변경점:**
+*   `summary_chain.invoke`와 `ksf_chain.invoke`에서 `question` 항목을 완전히 제거했습니다. 이제 AI는 오직 `context` 정보만 받아 명확한 지시를 수행합니다.
+
+```python
 # utils.py
 import os
 import re
@@ -45,8 +56,7 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     
     llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
         
-    # --- <<< 요약 생성 로직 (가장 확실하고 직접적인 방식으로 전면 교체) >>> ---
-    # 1. 문서의 맨 앞부분과, 검색된 세부 내용을 합쳐 AI에게 전달할 '문맥(Context)'을 직접 생성
+    # --- 요약 생성 ---
     header_content = _full_text[:4000]
     detail_docs = _vector_db.similarity_search(
         "사업 범위, 주요 요구사항, 사업 수행 조건, 제약사항, 평가 기준", k=5
@@ -54,39 +64,30 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     detail_content = "\n\n".join([doc.page_content for doc in detail_docs])
     summary_context = f"[문서 시작 부분]\n{header_content}\n\n[문서 주요 내용]\n{detail_content}"
 
-    # 2. 문제를 일으키는 load_qa_chain 대신, 프롬프트와 LLM을 직접 연결하는 간단한 체인 생성
     summary_prompt = PromptTemplate.from_template(SUMMARY_PROMPT_TEMPLATE)
     summary_chain = summary_prompt | llm
-
-    # 3. 체인에 'context'와 'question'을 직접 전달하여 정보 유실 가능성 원천 차단
-    summary_response = summary_chain.invoke({
-        "context": summary_context,
-        "question": "제공된 Context를 바탕으로, 템플릿에 맞춰 상세 요약 보고서를 작성해 주십시오."
-    })
+    summary_response = summary_chain.invoke({"context": summary_context})
     summary = summary_response.content
 
-    # --- KSF 생성 (기존 방식 유지) ---
-    ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
-    ksf_chain = load_qa_chain(llm, chain_type="stuff", prompt=ksf_prompt)
+    # --- KSF 생성 ---
     ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
-    ksf = ksf_chain.invoke({
-        "input_documents": ksf_docs,
-        "question": "문서 내용을 바탕으로 핵심 성공 요소를 분석해줘."
-    })["output_text"]
+    ksf_context = "\n\n".join([doc.page_content for doc in ksf_docs])
+    ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
+    ksf_chain = ksf_prompt | llm
+    ksf_response = ksf_chain.invoke({"context": ksf_context})
+    ksf = ksf_response.content
 
-    # --- 발표자료 목차 생성 (기존 방식 유지) ---
-    outline_retriever = _vector_db.as_retriever()
-    outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
-    outline_chain = load_qa_chain(llm, chain_type="stuff", prompt=outline_prompt)
-    outline_docs = outline_retriever.get_relevant_documents("RFP의 전체 내용을 분석해줘.")
+    # --- 발표자료 목차 생성 ---
+    outline_docs = _vector_db.similarity_search("RFP의 전체 내용을 분석해줘.", k=10)
     context_text = "\n\n".join([doc.page_content for doc in outline_docs])
-    presentation_outline = outline_chain.invoke({
-        "input_documents": outline_docs,
-        "question": "RFP 내용, 프로젝트 요약, 핵심 성공 요소를 바탕으로 발표자료 목차를 만들어줘.",
+    outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
+    outline_chain = outline_prompt | llm
+    outline_response = outline_chain.invoke({
         "summary": summary,
         "ksf": ksf,
         "context": context_text
-    })["output_text"]
+    })
+    presentation_outline = outline_response.content
 
     return summary, ksf, presentation_outline
 
