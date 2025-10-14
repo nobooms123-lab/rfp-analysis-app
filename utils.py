@@ -43,20 +43,34 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     if _vector_db is None or _full_text is None:
         return None, None, None
     
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
         
-    header_content = _full_text[:4000]
-    detail_docs = _vector_db.similarity_search(
-        "사업 범위, 주요 요구사항, 사업 수행 조건, 제약사항, 평가 기준", k=5
-    )
-    detail_content = "\n\n".join([doc.page_content for doc in detail_docs])
-    summary_context = f"[문서 시작 부분]\n{header_content}\n\n[문서 주요 내용]\n{detail_content}"
+    # --- <<< 요약 생성을 위한 정보 수집 방식 전면 업그레이드 >>> ---
+    # 1. 문서의 맨 앞부분(헤더)을 강제로 포함
+    header_doc = Document(page_content=_full_text[:4000])
 
+    # 2. 요약 템플릿의 각 항목에 맞춰, 주제별로 명시적 검색 수행
+    scope_docs = _vector_db.similarity_search("사업 범위, 주요 요구사항, 데이터 및 연동 요구사항", k=3)
+    condition_docs = _vector_db.similarity_search("사업 기간, 사업 예산, 제약사항", k=3)
+    tech_docs = _vector_db.similarity_search("필수 도입 기술, 솔루션, 기술 스택", k=2)
+    quality_docs = _vector_db.similarity_search("보안 요구사항, 품질 요구사항, 개인정보보호", k=2)
+    eval_docs = _vector_db.similarity_search("제안서 평가 기준, 평가 항목, 배점", k=2)
+
+    # 3. 모든 검색 결과를 합치고 중복을 제거하여 최종 Context 생성
+    all_docs = [header_doc] + scope_docs + condition_docs + tech_docs + quality_docs + eval_docs
+    # 순서를 유지하면서 중복 제거
+    unique_docs_dict = {doc.page_content: doc for doc in all_docs}
+    final_docs = list(unique_docs_dict.values())
+    
+    summary_context = "\n\n---\n\n".join([doc.page_content for doc in final_docs])
+
+    # 4. AI에게 최종 Context를 전달하여 요약 생성
     summary_prompt = PromptTemplate.from_template(SUMMARY_PROMPT_TEMPLATE)
     summary_chain = summary_prompt | llm
     summary_response = summary_chain.invoke({"context": summary_context})
     summary = summary_response.content
 
+    # --- KSF 생성 ---
     ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
     ksf_context = "\n\n".join([doc.page_content for doc in ksf_docs])
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
@@ -64,6 +78,7 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     ksf_response = ksf_chain.invoke({"context": ksf_context})
     ksf = ksf_response.content
 
+    # --- 발표자료 목차 생성 ---
     outline_docs = _vector_db.similarity_search("RFP의 전체 내용을 분석해줘.", k=10)
     context_text = "\n\n".join([doc.page_content for doc in outline_docs])
     outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
@@ -77,14 +92,10 @@ def generate_reports(_vector_db, _full_text, run_id=0):
 
     return summary, ksf, presentation_outline
 
-# <<< 핵심 변경점: handle_chat_interaction 함수의 PromptTemplate 정의를 최신 방식으로 수정 >>>
 def handle_chat_interaction(user_input, vector_db_in_session, current_summary, current_ksf, current_outline):
     llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     retriever = vector_db_in_session.as_retriever()
-    
-    # 문제를 일으키던 'input_variables'를 제거하고 최신 방식으로 통일
     prompt = PromptTemplate.from_template(EDITOR_PROMPT_TEMPLATE)
-
     relevant_docs = retriever.get_relevant_documents(user_input)
     context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
 
