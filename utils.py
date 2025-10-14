@@ -1,4 +1,4 @@
-# utils.py (캐시 분리 최종 완료)
+# utils.py
 import os
 import re
 import json
@@ -29,10 +29,9 @@ def get_vector_db(_uploaded_file):
     except Exception as e:
         st.error(f"텍스트 추출 중 오류 발생: {e}")
         return None
-
     if not full_text:
-        return None
-        
+        return None             
+
     # 1-2. 텍스트 분할 및 DB 생성/반환
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
     chunks = text_splitter.split_text(full_text)
@@ -46,18 +45,21 @@ def get_vector_db(_uploaded_file):
 def generate_reports(_vector_db):
     if _vector_db is None:
         return None, None, None
-
     llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
-    
+        
     # 2-1. 요약 생성 (refine)
     summary_chain = load_qa_chain(llm, chain_type="refine")
     summary_docs = _vector_db.similarity_search("RFP의 전체 내용을 상세히 요약해 주세요.", k=15)
     summary = summary_chain.invoke({"input_documents": summary_docs, "question": "제공된 RFP 문서의 첫 부분을 바탕으로, 아래 템플릿에 맞춰 요약 보고서 초안을 한국어로 작성해 주십시오. 이후 제공되는 내용으로 계속해서 보고서를 완성해 나갈 것입니다:\n\n" + SUMMARY_PROMPT_TEMPLATE})["output_text"]
 
-    # 2-2. KSF 생성 (refine)
-    ksf_chain = load_qa_chain(llm, chain_type="refine")
-    ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=15)
-    ksf = ksf_chain.invoke({"input_documents": ksf_docs, "question": "제공된 RFP 문서의 내용을 바탕으로, 이 사업 수주를 위한 핵심 성공 요소(KSF) 초안을 작성하십시오. 이후 제공되는 내용으로 계속해서 분석을 구체화할 것입니다."})["output_text"]
+    # 2-2. KSF 생성 (stuff 방식으로 변경 및 한글 프롬프트 적용)
+    ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
+    ksf_chain = load_qa_chain(llm, chain_type="stuff", prompt=ksf_prompt)
+    ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
+    ksf = ksf_chain.invoke({
+        "input_documents": ksf_docs,
+        "question": "문서 내용을 바탕으로 핵심 성공 요소를 분석해줘." # 이 질문은 형식적이며, 실제 지시는 프롬프트가 수행
+    })["output_text"]
 
     # 2-3. 발표자료 목차 생성 (stuff)
     outline_retriever = _vector_db.as_retriever()
@@ -80,14 +82,15 @@ def handle_chat_interaction(user_input, vector_db_in_session, current_summary, c
     llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     retriever = vector_db_in_session.as_retriever()
     prompt = PromptTemplate(
-        template=EDITOR_PROMPT_TEMPLATE, 
+        template=EDITOR_PROMPT_TEMPLATE,
         input_variables=["summary", "ksf", "outline", "user_request", "context"]
     )
     relevant_docs = retriever.get_relevant_documents(user_input)
     context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
+
     chain = prompt | llm
     response = chain.invoke({
-        "summary": current_summary, "ksf": current_ksf, "outline": current_outline, 
+        "summary": current_summary, "ksf": current_ksf, "outline": current_outline,
         "user_request": user_input, "context": context_text
     })
     return response.content
@@ -97,9 +100,14 @@ def to_excel(summary, ksf, outline):
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_summary = pd.DataFrame([summary.replace("\n", "\r\n")], columns=["내용"])
         df_summary.to_excel(writer, sheet_name='제안서 요약', index=False)
+        
         df_ksf = pd.DataFrame([ksf.replace("\n", "\r\n")], columns=["내용"])
         df_ksf.to_excel(writer, sheet_name='핵심 성공 요소', index=False)
+        
         df_outline = pd.DataFrame([outline.replace("\n", "\r\n")], columns=["내용"])
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
+        
     processed_data = output.getvalue()
     return processed_data
+    return processed_data
+
