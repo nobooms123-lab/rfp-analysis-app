@@ -1,118 +1,116 @@
-# main.py
-import streamlit as st
-import json
+# utils.py
+import os
 import re
-from utils import get_vector_db, generate_reports, handle_chat_interaction, to_excel
+import json
+import pandas as pd
+import io
+import streamlit as st
+import fitz  # PyMuPDF
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_community.vectorstores import FAISS
+from langchain.prompts import PromptTemplate
+from langchain.chains.question_answering import load_qa_chain
+from prompts import SUMMARY_PROMPT_TEMPLATE, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT_TEMPLATE, EDITOR_PROMPT_TEMPLATE
 
-# --- 1. 기본 설정 및 페이지 구성 ---
-st.set_page_config(page_title="대화형 제안서 분석 도우미", layout="wide")
-st.title("대화형 제안서 분석 및 편집 도우미")
+# --- 1. 리소스 생성 함수 (@st.cache_resource 사용) ---
+@st.cache_resource(show_spinner="PDF 분석 및 데이터베이스 생성 중...")
+def get_vector_db(_uploaded_file):
+    try:
+        file_bytes = _uploaded_file.getvalue()
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        all_text = [page.get_text() for page in doc]
+        doc.close()
+        full_text_raw = "\n\n".join(all_text)
+        text = re.sub(r'\n\s*\n', '\n', full_text_raw)
+        full_text = text.strip()
+    except Exception as e:
+        st.error(f"텍스트 추출 중 오류 발생: {e}")
+        return None, None # <<< 변경된 부분
+    if not full_text:
+        return None, None # <<< 변경된 부분
 
-# --- 수정된 부분: run_id를 추가하여 캐시를 무효화하는 콜백 함수 ---
-def clear_reports_and_rerun():
-    """세션 상태에서 분석 보고서를 삭제하고, run_id를 증가시켜 재생성을 유도합니다."""
-    keys_to_delete = ["summary", "ksf", "presentation_outline", "messages"]
-    for key in keys_to_delete:
-        if key in st.session_state:
-            del st.session_state[key]
-    # run_id를 1 증가시켜 캐시가 다른 입력으로 인식하게 함
-    st.session_state.run_id = st.session_state.get('run_id', 0) + 1
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
+    chunks = text_splitter.split_text(full_text)
+    doc_chunks = [Document(page_content=t) for t in chunks]
+    embeddings = OpenAIEmbeddings(api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    vector_db = FAISS.from_documents(doc_chunks, embeddings)
+    
+    # <<< 변경된 부분: 벡터 DB와 함께 추출된 전체 텍스트도 반환 >>>
+    return vector_db, full_text
 
-# --- 2. 사이드바 구성 ---
-st.sidebar.title("설정")
-if "OPENAI_GPT_API_KEY" not in st.secrets or not st.secrets["OPENAI_GPT_API_KEY"].startswith('sk-'):
-    st.sidebar.error("OpenAI API 키를 .streamlit/secrets.toml에 설정해주세요.")
-    st.stop()
+# --- 2. 데이터 생성 함수 (@st.cache_data 사용) ---
+@st.cache_data(show_spinner="AI가 분석 보고서를 생성 중입니다...")
+def generate_reports(_vector_db, run_id=0):
+    if _vector_db is None:
+        return None, None, None
+    
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+        
+    summary_prompt = PromptTemplate.from_template(SUMMARY_PROMPT_TEMPLATE)
+    summary_chain = load_qa_chain(llm, chain_type="stuff", prompt=summary_prompt)
+    summary_docs = _vector_db.similarity_search(
+        "이 RFP 문서의 사업 개요, 배경, 목표, 범위, 요구사항, 기간, 예산, 평가 기준을 포함한 전반적인 내용", 
+        k=10
+    )
+    summary = summary_chain.invoke({
+        "input_documents": summary_docs,
+        "question": "제공된 Context를 바탕으로, 템플릿에 맞춰 상세 요약 보고서를 작성해 주십시오."
+    })["output_text"]
 
-st.sidebar.success("API 키 로드 성공")
+    ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
+    ksf_chain = load_qa_chain(llm, chain_type="stuff", prompt=ksf_prompt)
+    ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
+    ksf = ksf_chain.invoke({
+        "input_documents": ksf_docs,
+        "question": "문서 내용을 바탕으로 핵심 성공 요소를 분석해줘."
+    })["output_text"]
 
-if "summary" in st.session_state:
-    st.sidebar.button("🔄️ 분석 결과 다시 생성하기", on_click=clear_reports_and_rerun, use_container_width=True)
+    outline_retriever = _vector_db.as_retriever()
+    outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
+    outline_chain = load_qa_chain(llm, chain_type="stuff", prompt=outline_prompt)
+    outline_docs = outline_retriever.get_relevant_documents("RFP의 전체 내용을 분석해줘.")
+    context_text = "\n\n".join([doc.page_content for doc in outline_docs])
+    presentation_outline = outline_chain.invoke({
+        "input_documents": outline_docs,
+        "question": "RFP 내용, 프로젝트 요약, 핵심 성공 요소를 바탕으로 발표자료 목차를 만들어줘.",
+        "summary": summary,
+        "ksf": ksf,
+        "context": context_text
+    })["output_text"]
 
-uploaded_file = st.sidebar.file_uploader("분석할 RFP PDF 파일 업로드", type="pdf")
+    return summary, ksf, presentation_outline
 
-# --- 3. 핵심 로직: 파일 처리 및 초기 분석 (한번에 실행) ---
-if uploaded_file:
-    if st.session_state.get("uploaded_filename") != uploaded_file.name:
-        st.session_state.clear()
-        st.session_state.uploaded_filename = uploaded_file.name
-        st.session_state.run_id = 0 # 새 파일이 올라오면 run_id 초기화
+# --- 채팅 및 엑셀 변환 함수 (변경 없음) ---
+def handle_chat_interaction(user_input, vector_db_in_session, current_summary, current_ksf, current_outline):
+    llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    retriever = vector_db_in_session.as_retriever()
+    prompt = PromptTemplate(
+        template=EDITOR_PROMPT_TEMPLATE,
+        input_variables=["summary", "ksf", "outline", "user_request", "context"]
+    )
+    relevant_docs = retriever.get_relevant_documents(user_input)
+    context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
 
-    vector_db = get_vector_db(uploaded_file)
-    if vector_db:
-        st.session_state.vector_db = vector_db
+    chain = prompt | llm
+    response = chain.invoke({
+        "summary": current_summary, "ksf": current_ksf, "outline": current_outline,
+        "user_request": user_input, "context": context_text
+    })
+    return response.content
 
-        if "summary" not in st.session_state:
-            # <<< 수정된 부분: 현재 run_id를 generate_reports에 전달 >>>
-            current_run_id = st.session_state.get('run_id', 0)
-            summary, ksf, outline = generate_reports(vector_db, run_id=current_run_id)
-            
-            if summary and ksf and outline:
-                st.session_state.summary = summary
-                st.session_state.ksf = ksf
-                st.session_state.presentation_outline = outline
-                st.session_state.messages = []
-                st.sidebar.success("초기 분석이 완료되었습니다!")
-                st.rerun()
-            else:
-                st.error("분석 보고서 생성 중 오류가 발생했습니다.")
-                st.stop()
-    else:
-        st.error("PDF 파일 분석 중 오류가 발생했습니다. 파일을 다시 확인해주세요.")
-        st.stop()
-else:
-    st.info("사이드바에서 RFP PDF 파일을 업로드하면 분석이 시작됩니다.")
-    st.session_state.clear()
-
-# --- 4. 메인 화면 UI 렌더링 (결과 생성 후) ---
-if "summary" in st.session_state:
-    col_chat, col_results = st.columns([2, 3])
-
-    with col_results:
-        st.subheader("최종 결과물")
-        excel_data = to_excel(st.session_state.summary, st.session_state.ksf, st.session_state.presentation_outline)
-        st.download_button(
-            label="📥 전체 결과 Excel로 다운로드", data=excel_data,
-            file_name=f"{uploaded_file.name.split('.')[0]}_analysis.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        tab1, tab2, tab3 = st.tabs(["제안서 요약", "핵심 성공 요소", "발표자료 목차"])
-        with tab1: st.markdown(st.session_state.summary)
-        with tab2: st.markdown(st.session_state.ksf)
-        with tab3: st.markdown(st.session_state.presentation_outline)
-
-    with col_chat:
-        st.subheader("질의 및 수정 요청")
-        for message in st.session_state.get("messages", []):
-            with st.chat_message(message["role"]): st.markdown(message["content"])
-
-        if user_prompt := st.chat_input("수정할 내용을 입력하세요..."):
-            st.session_state.messages.append({"role": "user", "content": user_prompt})
-            with st.chat_message("user"): st.markdown(user_prompt)
-
-            with st.chat_message("assistant"):
-                with st.spinner("요청을 분석하고 문서를 수정하는 중..."):
-                    response_text = handle_chat_interaction(
-                        user_prompt, st.session_state.vector_db, st.session_state.summary,
-                        st.session_state.ksf, st.session_state.presentation_outline
-                    )
-                    try:
-                        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-                        if not json_match: raise ValueError("응답에서 JSON 객체를 찾을 수 없음")
-                        
-                        response_data = json.loads(json_match.group(0))
-                        target = response_data["target_section"]
-                        valid_targets = ["summary", "ksf", "presentation_outline"]
-
-                        if target not in valid_targets: raise ValueError(f"잘못된 수정 대상: {target}")
-
-                        st.session_state[target] = response_data["new_content"]
-                        success_message = f"✅ **'{target.upper()}'** 섹션이 업데이트되었습니다."
-                        st.markdown(success_message)
-                        st.session_state.messages.append({"role": "assistant", "content": success_message})
-                        st.rerun()
-
-                    except Exception as e:
-                        error_message = f"응답 처리 오류: {e}\n\nAI 응답: {response_text}"
-                        st.error(error_message)
-                        st.session_state.messages.append({"role": "assistant", "content": error_message})
+def to_excel(summary, ksf, outline):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_summary = pd.DataFrame([summary.replace("\n", "\r\n")], columns=["내용"])
+        df_summary.to_excel(writer, sheet_name='제안서 요약', index=False)
+        
+        df_ksf = pd.DataFrame([ksf.replace("\n", "\r\n")], columns=["내용"])
+        df_ksf.to_excel(writer, sheet_name='핵심 성공 요소', index=False)
+        
+        df_outline = pd.DataFrame([outline.replace("\n", "\r\n")], columns=["내용"])
+        df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
+        
+    processed_data = output.getvalue()
+    return processed_data
