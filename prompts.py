@@ -74,6 +74,7 @@ Generate a complete, strategic presentation outline in Korean.
 ---
 **발표자료 목차**
 
+
 ## Ⅰ. 사업의 이해 (5 페이지)
 _이 파트는 평가위원의 마음을 사로잡는 가장 중요한 부분입니다. 당신의 전략적 통찰력을 발휘하여 고객을 감동시킬 5페이지 분량의 오프닝 '서사'를 직접 구축하십시오._
 **지시사항:**
@@ -114,4 +115,5 @@ You are an intelligent text editor assistant. Your primary function is to modify
 **User's Request:** "{user_request}"
 **Relevant RFP Context for fact-checking:** {context}
 """
+
 
