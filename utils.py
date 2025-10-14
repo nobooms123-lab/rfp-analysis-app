@@ -1,15 +1,3 @@
-
----
-
-### **2단계: `utils.py` 파일 수정 (불필요한 질문 전달 중단)**
-
-`utils.py` 파일을 열고, **기존 내용을 모두 삭제**한 뒤 아래 코드로 교체해주세요.
-
-**핵심 변경점:**
-*   `summary_chain.invoke`와 `ksf_chain.invoke`에서 `question` 항목을 완전히 제거했습니다. 이제 AI는 오직 `context` 정보만 받아 명확한 지시를 수행합니다.
-
-```python
-# utils.py
 import os
 import re
 import json
@@ -119,3 +107,4 @@ def to_excel(summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
