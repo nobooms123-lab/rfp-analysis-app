@@ -73,27 +73,24 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     extraction_llm = ChatOpenAI(model="gpt-4o", temperature=0.0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     creative_llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     
-    # --- '지능형 분업' 시스템 시작 ---
+    # --- Part 1: 제안서 요약 (정확성 100%의 정보 추출) ---
+    st.spinner("1/3 - 제안서 요약 정보 추출 중...")
     tasks = {
         "개요": ["사업명", "추진 배경 및 필요성", "사업의 최종 목표"],
         "범위": ["주요 사업 범위", "핵심 기능 요구사항", "데이터 및 연동 요구사항"],
         "조건": ["사업 기간", "사업 예산", "주요 제약사항 및 요구사항"],
         "평가": ["평가 항목 및 배점", "정성적 평가 항목 분석"],
     }
-
     final_extracted_data = {}
     prompt = PromptTemplate.from_template(EXTRACT_INFO_PROMPT_TEMPLATE)
     chain = prompt | extraction_llm
 
-    # 각 작업을 순서대로 실행하여 정보 수집
     for task_name, fields in tasks.items():
-        st.spinner(f"'{task_name}' 정보 추출 중...")
         try:
-            # [핵심 변경점] 각 작업에 필요한 문서 조각만 지능적으로 검색
             query = ", ".join(fields)
             relevant_docs = _vector_db.similarity_search(query, k=7)
             task_context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
-
+            
             response = chain.invoke({
                 "context": task_context, 
                 "fields_to_extract": ", ".join(f'"{f}"' for f in fields)
@@ -104,26 +101,27 @@ def generate_reports(_vector_db, _full_text, run_id=0):
                 final_extracted_data.update(extracted_data)
         except Exception as e:
             st.warning(f"'{task_name}' 정보 추출 중 오류: {e}")
-
-    # --- '지능형 분업' 시스템 종료: 수집된 정보로 보고서 조립 ---
     summary = format_summary_from_json(final_extracted_data)
 
-    # --- KSF 및 목차 생성 (창의적 작업) ---
-    ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
-    ksf_context = "\n\n".join([doc.page_content for doc in ksf_docs])
+    # --- Part 2: 핵심 성공 요소 (사실 기반의 창의적 분석) ---
+    st.spinner("2/3 - 핵심 성공 요소 분석 중...")
+    # 창의적 작업을 위한 풍부한 Context 생성
+    creative_context_docs = _vector_db.similarity_search("RFP의 전체적인 내용, 사업 목표, 요구사항, 평가 기준", k=10)
+    creative_context = "\n\n---\n\n".join([doc.page_content for doc in creative_context_docs])
+    
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
     ksf_chain = ksf_prompt | creative_llm
-    ksf_response = ksf_chain.invoke({"context": ksf_context})
+    ksf_response = ksf_chain.invoke({"context": creative_context})
     ksf = ksf_response.content
 
-    outline_docs = _vector_db.similarity_search("RFP의 전체 내용을 분석해줘.", k=10)
-    context_text = "\n\n".join([doc.page_content for doc in outline_docs])
+    # --- Part 3: 발표자료 목차 (사실 기반의 창의적 분석) ---
+    st.spinner("3/3 - 발표자료 목차 생성 중...")
     outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
     outline_chain = outline_prompt | creative_llm
     outline_response = outline_chain.invoke({
         "summary": summary,
         "ksf": ksf,
-        "context": context_text
+        "context": creative_context 
     })
     presentation_outline = outline_response.content
 
