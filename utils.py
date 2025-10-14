@@ -27,16 +27,18 @@ def get_vector_db(_uploaded_file):
         full_text = text.strip()
     except Exception as e:
         st.error(f"텍스트 추출 중 오류 발생: {e}")
-        return None
+        return None, None # <<< 변경된 부분
     if not full_text:
-        return None             
+        return None, None # <<< 변경된 부분
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
     chunks = text_splitter.split_text(full_text)
     doc_chunks = [Document(page_content=t) for t in chunks]
     embeddings = OpenAIEmbeddings(api_key=st.secrets["OPENAI_GPT_API_KEY"])
     vector_db = FAISS.from_documents(doc_chunks, embeddings)
-    return vector_db
+    
+    # <<< 변경된 부분: 벡터 DB와 함께 추출된 전체 텍스트도 반환 >>>
+    return vector_db, full_text
 
 # --- 2. 데이터 생성 함수 (@st.cache_data 사용) ---
 @st.cache_data(show_spinner="AI가 분석 보고서를 생성 중입니다...")
@@ -100,7 +102,6 @@ def handle_chat_interaction(user_input, vector_db_in_session, current_summary, c
 
 def to_excel(summary, ksf, outline):
     output = io.BytesIO()
-    # <<< 수정된 부분: open_xl -> openpyxl 오타 수정 >>>
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_summary = pd.DataFrame([summary.replace("\n", "\r\n")], columns=["내용"])
         df_summary.to_excel(writer, sheet_name='제안서 요약', index=False)
