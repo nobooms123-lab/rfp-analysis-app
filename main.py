@@ -4,7 +4,6 @@ import json
 import re
 from utils import get_vector_db, generate_reports, handle_chat_interaction, to_excel
 
-# --- 1. 기본 설정 및 페이지 구성 ---
 st.set_page_config(page_title="대화형 제안서 분석 도우미", layout="wide")
 st.title("대화형 제안서 분석 및 편집 도우미")
 
@@ -15,7 +14,6 @@ def clear_reports_and_rerun():
             del st.session_state[key]
     st.session_state.run_id = st.session_state.get('run_id', 0) + 1
 
-# --- 2. 사이드바 구성 ---
 st.sidebar.title("설정")
 if "OPENAI_GPT_API_KEY" not in st.secrets or not st.secrets["OPENAI_GPT_API_KEY"].startswith('sk-'):
     st.sidebar.error("OpenAI API 키를 .streamlit/secrets.toml에 설정해주세요.")
@@ -27,7 +25,6 @@ if "summary" in st.session_state:
 
 uploaded_file = st.sidebar.file_uploader("분석할 RFP PDF 파일 업로드", type="pdf")
 
-# --- 3. 핵심 로직: 파일 처리 및 초기 분석 (한번에 실행) ---
 if uploaded_file:
     if st.session_state.get("uploaded_filename") != uploaded_file.name:
         st.session_state.clear()
@@ -36,14 +33,14 @@ if uploaded_file:
 
     vector_db, ocr_text = get_vector_db(uploaded_file)
     
-    if vector_db:
+    if vector_db and ocr_text:
         st.session_state.vector_db = vector_db
-        if ocr_text:
-            st.session_state.ocr_text = ocr_text
+        st.session_state.ocr_text = ocr_text
 
         if "summary" not in st.session_state:
             current_run_id = st.session_state.get('run_id', 0)
-            summary, ksf, outline = generate_reports(vector_db, run_id=current_run_id)
+            # <<< 핵심 변경: generate_reports에 ocr_text 원본을 함께 전달 >>>
+            summary, ksf, outline = generate_reports(vector_db, ocr_text, run_id=current_run_id)
             
             if summary and ksf and outline:
                 st.session_state.summary = summary
@@ -62,7 +59,6 @@ else:
     st.info("사이드바에서 RFP PDF 파일을 업로드하면 분석이 시작됩니다.")
     st.session_state.clear()
 
-# --- 4. 메인 화면 UI 렌더링 (결과 생성 후) ---
 if "summary" in st.session_state:
     col_chat, col_results = st.columns([2, 3])
 
@@ -88,15 +84,12 @@ if "summary" in st.session_state:
         if "ocr_text" in st.session_state and len(tabs) > 3:
             with tabs[3]:
                 st.info("🤖 AI가 아래 텍스트를 기반으로 분석을 수행했습니다.")
-                
-                # <<< 추가된 부분: OCR 텍스트 다운로드 버튼 >>>
                 st.download_button(
                     label="📥 OCR 텍스트 다운로드 (.txt)",
                     data=st.session_state.ocr_text.encode('utf-8'),
                     file_name=f"{uploaded_file.name.split('.')[0]}_ocr.txt",
                     mime="text/plain"
                 )
-
                 st.text_area(
                     label="추출된 전체 텍스트",
                     value=st.session_state.ocr_text,
@@ -122,19 +115,15 @@ if "summary" in st.session_state:
                     try:
                         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                         if not json_match: raise ValueError("응답에서 JSON 객체를 찾을 수 없음")
-                        
                         response_data = json.loads(json_match.group(0))
                         target = response_data["target_section"]
                         valid_targets = ["summary", "ksf", "presentation_outline"]
-
                         if target not in valid_targets: raise ValueError(f"잘못된 수정 대상: {target}")
-
                         st.session_state[target] = response_data["new_content"]
                         success_message = f"✅ **'{target.upper()}'** 섹션이 업데이트되었습니다."
                         st.markdown(success_message)
                         st.session_state.messages.append({"role": "assistant", "content": success_message})
                         st.rerun()
-
                     except Exception as e:
                         error_message = f"응답 처리 오류: {e}\n\nAI 응답: {response_text}"
                         st.error(error_message)
