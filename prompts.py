@@ -12,7 +12,7 @@ You are a highly precise information extraction agent. Your ONLY task is to read
 {context}
 
 **JSON Schema:**
-{
+{{
     "사업명": "...",
     "추진_배경_및_필요성": "...",
     "사업의_최종_목표": "...",
@@ -24,7 +24,7 @@ You are a highly precise information extraction agent. Your ONLY task is to read
     "주요_제약사항_및_요구사항": "...",
     "평가_항목_및_배점": "...",
     "정성적_평가_항목_분석": "..."
-}
+}}
 """
 
 KSF_PROMPT_TEMPLATE = """
@@ -82,7 +82,7 @@ You are an intelligent text editor assistant. Your primary function is to modify
 2.  **CONTENT-ONLY MODIFICATION:** Only alter the textual content to reflect the user's request.
 3.  **FACT-CHECKING:** Your modifications MUST be consistent with the provided "Relevant RFP Context".
 4.  **CHOOSE CORRECT TARGET:** You must identify which of the three documents ([summary], [ksf], [presentation_outline]) the user wants to edit and set it as the "target_section".
-5.  **OUTPUT FORMAT:** Your final output MUST BE a single, valid JSON object.
+5.  **OUTPUT FORMAT:** Your final output MUST be a single, valid JSON object.
 **Current Documents:**
 1.  **[summary]**: {summary}
 2.  **[ksf]**: {ksf}
