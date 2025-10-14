@@ -11,7 +11,8 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
-from prompts import SUMMARY_PROMPT_TEMPLATE, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT_TEMPLATE, EDITOR_PROMPT_TEMPLATE
+from langchain.chains.question_answering import load_qa_chain
+from prompts import SUMMARY_PROMPT_TEMPLATE, REFINE_PROMPT_TEMPLATE, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT_TEMPLATE, EDITOR_PROMPT_TEMPLATE
 
 @st.cache_resource(show_spinner="PDF 분석 및 데이터베이스 생성 중...")
 def get_vector_db(_uploaded_file):
@@ -42,18 +43,29 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     if _vector_db is None or _full_text is None:
         return None, None, None
     
-    # --- <<< 요약(정보추출)용 LLM과 창의적 작업용 LLM을 분리 >>> ---
-    # 정확한 정보 추출을 위해 temperature를 낮춘 LLM
     extraction_llm = ChatOpenAI(model="gpt-4o", temperature=0.1, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
-    # KSF, 목차 등 창의적 분석을 위한 LLM
     creative_llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
         
-    # --- <<< 요약 생성: AI에게 문서 전체를 전달하여 직접 정보를 찾게 하는 방식으로 변경 >>> ---
-    summary_context = _full_text
-    summary_prompt = PromptTemplate.from_template(SUMMARY_PROMPT_TEMPLATE)
-    summary_chain = summary_prompt | extraction_llm
-    summary_response = summary_chain.invoke({"context": summary_context})
-    summary = summary_response.content
+    # --- <<< 요약 생성: RateLimitError를 해결하기 위해 'refine' 방식으로 변경 >>> ---
+    # 1. 전체 텍스트를 refine 체인이 처리할 수 있도록 작은 조각으로 나눔
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=3000, chunk_overlap=200)
+    summary_doc_chunks = [Document(page_content=t) for t in text_splitter.split_text(_full_text)]
+
+    # 2. refine 체인에 사용할 초기 프롬프트와 업데이트 프롬프트를 정의
+    question_prompt = PromptTemplate.from_template(SUMMARY_PROMPT_TEMPLATE)
+    refine_prompt = PromptTemplate.from_template(REFINE_PROMPT_TEMPLATE)
+
+    # 3. refine 체인을 생성
+    refine_chain = load_qa_chain(
+        llm=extraction_llm,
+        chain_type="refine",
+        question_prompt=question_prompt,
+        refine_prompt=refine_prompt,
+        return_intermediate_steps=False,
+    )
+    # 4. 체인을 실행하여 문서 전체를 순차적으로 처리
+    summary_response = refine_chain.invoke({"input_documents": summary_doc_chunks, "question": "DUMMY_QUESTION"})
+    summary = summary_response["output_text"]
 
     # --- KSF 생성 ---
     ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
