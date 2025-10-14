@@ -1,3 +1,4 @@
+# utils.py
 import os
 import re
 import json
@@ -44,7 +45,6 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     
     llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
         
-    # --- 요약 생성 ---
     header_content = _full_text[:4000]
     detail_docs = _vector_db.similarity_search(
         "사업 범위, 주요 요구사항, 사업 수행 조건, 제약사항, 평가 기준", k=5
@@ -57,7 +57,6 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     summary_response = summary_chain.invoke({"context": summary_context})
     summary = summary_response.content
 
-    # --- KSF 생성 ---
     ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
     ksf_context = "\n\n".join([doc.page_content for doc in ksf_docs])
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
@@ -65,7 +64,6 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     ksf_response = ksf_chain.invoke({"context": ksf_context})
     ksf = ksf_response.content
 
-    # --- 발표자료 목차 생성 ---
     outline_docs = _vector_db.similarity_search("RFP의 전체 내용을 분석해줘.", k=10)
     context_text = "\n\n".join([doc.page_content for doc in outline_docs])
     outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
@@ -79,20 +77,24 @@ def generate_reports(_vector_db, _full_text, run_id=0):
 
     return summary, ksf, presentation_outline
 
+# <<< 핵심 변경점: handle_chat_interaction 함수의 PromptTemplate 정의를 최신 방식으로 수정 >>>
 def handle_chat_interaction(user_input, vector_db_in_session, current_summary, current_ksf, current_outline):
     llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     retriever = vector_db_in_session.as_retriever()
-    prompt = PromptTemplate(
-        template=EDITOR_PROMPT_TEMPLATE,
-        input_variables=["summary", "ksf", "outline", "user_request", "context"]
-    )
+    
+    # 문제를 일으키던 'input_variables'를 제거하고 최신 방식으로 통일
+    prompt = PromptTemplate.from_template(EDITOR_PROMPT_TEMPLATE)
+
     relevant_docs = retriever.get_relevant_documents(user_input)
     context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
 
     chain = prompt | llm
     response = chain.invoke({
-        "summary": current_summary, "ksf": current_ksf, "outline": current_outline,
-        "user_request": user_input, "context": context_text
+        "summary": current_summary, 
+        "ksf": current_ksf, 
+        "outline": current_outline,
+        "user_request": user_input, 
+        "context": context_text
     })
     return response.content
 
@@ -107,4 +109,3 @@ def to_excel(summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
-
