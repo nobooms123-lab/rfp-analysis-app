@@ -8,13 +8,15 @@ from utils import get_vector_db, generate_reports, handle_chat_interaction, to_e
 st.set_page_config(page_title="대화형 제안서 분석 도우미", layout="wide")
 st.title("대화형 제안서 분석 및 편집 도우미")
 
-# --- 추가된 부분: 다시 생성 버튼을 위한 콜백 함수 ---
-def clear_reports():
-    """세션 상태에서 분석 보고서만 삭제하여 재생성을 유도합니다."""
+# --- 수정된 부분: run_id를 추가하여 캐시를 무효화하는 콜백 함수 ---
+def clear_reports_and_rerun():
+    """세션 상태에서 분석 보고서를 삭제하고, run_id를 증가시켜 재생성을 유도합니다."""
     keys_to_delete = ["summary", "ksf", "presentation_outline", "messages"]
     for key in keys_to_delete:
         if key in st.session_state:
             del st.session_state[key]
+    # run_id를 1 증가시켜 캐시가 다른 입력으로 인식하게 함
+    st.session_state.run_id = st.session_state.get('run_id', 0) + 1
 
 # --- 2. 사이드바 구성 ---
 st.sidebar.title("설정")
@@ -24,9 +26,8 @@ if "OPENAI_GPT_API_KEY" not in st.secrets or not st.secrets["OPENAI_GPT_API_KEY"
 
 st.sidebar.success("API 키 로드 성공")
 
-# --- 추가된 부분: 분석 완료 후 '다시 생성' 버튼 표시 ---
 if "summary" in st.session_state:
-    st.sidebar.button("🔄️ 분석 결과 다시 생성하기", on_click=clear_reports, use_container_width=True)
+    st.sidebar.button("🔄️ 분석 결과 다시 생성하기", on_click=clear_reports_and_rerun, use_container_width=True)
 
 uploaded_file = st.sidebar.file_uploader("분석할 RFP PDF 파일 업로드", type="pdf")
 
@@ -35,15 +36,17 @@ if uploaded_file:
     if st.session_state.get("uploaded_filename") != uploaded_file.name:
         st.session_state.clear()
         st.session_state.uploaded_filename = uploaded_file.name
+        st.session_state.run_id = 0 # 새 파일이 올라오면 run_id 초기화
 
-    # 1. Vector DB 생성/로드 (@st.cache_resource)
     vector_db = get_vector_db(uploaded_file)
     if vector_db:
-        st.session_state.vector_db = vector_db # 채팅을 위해 세션에 저장
+        st.session_state.vector_db = vector_db
 
-        # 2. 보고서 생성/로드 (@st.cache_data)
         if "summary" not in st.session_state:
-            summary, ksf, outline = generate_reports(vector_db)
+            # <<< 수정된 부분: 현재 run_id를 generate_reports에 전달 >>>
+            current_run_id = st.session_state.get('run_id', 0)
+            summary, ksf, outline = generate_reports(vector_db, run_id=current_run_id)
+            
             if summary and ksf and outline:
                 st.session_state.summary = summary
                 st.session_state.ksf = ksf
