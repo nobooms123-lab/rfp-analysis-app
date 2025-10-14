@@ -38,7 +38,6 @@ if uploaded_file:
         st.session_state.ocr_text = ocr_text
 
         if "summary" not in st.session_state:
-            current_run_id = st.session_state.get('run_id', 0)
             summary, ksf, outline = generate_reports(vector_db, ocr_text, run_id=current_run_id)
             
             if summary and ksf and outline:
