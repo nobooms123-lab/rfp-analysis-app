@@ -1,6 +1,5 @@
 # prompts.py
 
-# ... (FACT_EXTRACTION_PROMPT는 이전과 동일하게 유지)
 FACT_EXTRACTION_PROMPT = """
 You are a highly accurate information extraction AI. Your sole task is to scan the provided RFP context and extract the following specific pieces of information.
 - project_name: 사업명
@@ -21,9 +20,6 @@ You are a highly accurate information extraction AI. Your sole task is to scan t
 **JSON Output:**
 """
 
-# --- 변경점: STRATEGIC_SUMMARY_PROMPT 구조 변경 ---
-# 1. 프로젝트 개요 정보를 입력받을 변수 추가
-# 2. 본문 내용을 '사업의 본질', '핵심 과업', '평가와 승리 전략'으로 재구성
 STRATEGIC_SUMMARY_PROMPT = """
 You are a seasoned proposal manager and consultant for a bidding company. Your task is to analyze the provided RFP context and create a strategic report for your internal team. Use the provided project overview as a header and then elaborate on the strategic points.
 
@@ -63,18 +59,23 @@ You are a seasoned proposal manager and consultant for a bidding company. Your t
 KSF_PROMPT_TEMPLATE = """
 [CRITICAL INSTRUCTION]
 You are an expert business analyst. You MUST answer based SOLELY on the provided 'Context'. The context is a rich summary of a Request for Proposal (RFP). Your task is to identify the most critical success factors (KSFs) for winning the project.
+
 **Context:**
 {context}
+
 **핵심 성공 요소 (KSF):**
 (이제 위 Context를 바탕으로, 이 사업 수주를 위한 '핵심 성공 요소(KSF)'를 5-6가지 찾아 목록으로 만들고, 한국어로 간략하게 설명하십시오.)
 """
+
 OUTLINE_PROMPT_TEMPLATE = """
 [CRITICAL INSTRUCTION]
 You are a world-class proposal strategist. Your task is to create a presentation outline based SOLELY on the documents provided below. Your creativity should be in how you frame and present the information, not in inventing new information.
+
 **Input Documents:**
 1.  **RFP Context:** {context}
 2.  **Project Summary:** {summary}
 3.  **Key Success Factors (KSFs):** {ksf}
+
 **Your Task:**
 Generate a complete, strategic presentation outline in Korean.
 ---
@@ -91,9 +92,11 @@ _이 파트는 평가위원의 마음을 사로잡는 가장 중요한 부분입
 4.  **데이터 기반 공감대 형성:** 'Project Summary'와 'RFP Context'의 정보를 활용하여, 우리가 고객의 상황을 깊이 이해하고 있음을 구체적인 근거로 제시해야 합니다.
 5.  **출력 형식:** 5개 슬라이드 컨셉을 "**1 페이지: [당신이 만든 감성적 헤드라인]:**" 형식으로 시작하고, 그 아래에 핵심 메시지를 2~3개의 글머리 기호(-)로 요약하여 작성하십시오.
 **(여기에 당신의 창의적인 '사업의 이해' 5페이지를 구성하여 제시하세요.)**
+
 ## Ⅱ. 핵심 성공 요소 (1 페이지)
 _우리가 이 사업의 본질을 정확히 꿰뚫고 있음을 증명하는 논리적 징검다리입니다._
 - (제공된 'Key Success Factors (KSFs)' 문서를 바탕으로, 이 사업을 성공시키기 위한 가장 중요한 조건 5-6가지를 목록(bullet points)으로 명확하게 제시하세요.)
+
 ## Ⅲ. 사업 추진 전략 (7-8 페이지)
 _우리가 어떻게 핵심 성공 요소를 완벽하게 충족시키며, 앞서 제시한 비전을 현실로 만들 것인지 증명하는 파트입니다. 당신의 전략가적 역량을 다시 한번 발휘하여, 우리 회사만의 독창적인 사업 추진 전략 목차와 핵심 메시지를 7-8개 항목으로 직접 구성해 주십시오._
 **지시사항:**
