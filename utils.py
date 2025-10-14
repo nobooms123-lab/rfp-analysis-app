@@ -73,8 +73,8 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     extraction_llm = ChatOpenAI(model="gpt-4o", temperature=0.0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     creative_llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     
-    # --- <<< '분업' 시스템 시작 >>> ---
-    # 각 인턴(AI 호출)에게 줄 작업 목록 정의
+    # --- '분업' 시스템 시작 ---
+    # 각 AI 호출(인턴)에게 줄 작업 목록 정의
     tasks = {
         "개요": ["사업명", "추진 배경 및 필요성", "사업의 최종 목표"],
         "범위": ["주요 사업 범위", "핵심 기능 요구사항", "데이터 및 연동 요구사항"],
@@ -88,23 +88,24 @@ def generate_reports(_vector_db, _full_text, run_id=0):
 
     # 각 작업을 순서대로 실행하여 정보 수집
     for task_name, fields in tasks.items():
-        with st.spinner(f"'{task_name}' 정보 추출 중..."):
-            try:
-                response = chain.invoke({
-                    "context": _full_text, 
-                    "fields_to_extract": ", ".join(f'"{f}"' for f in fields)
-                })
-                json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
-                if json_match:
-                    extracted_data = json.loads(json_match.group(0))
-                    final_extracted_data.update(extracted_data)
-            except Exception as e:
-                st.warning(f"'{task_name}' 정보 추출 중 오류: {e}")
+        st.spinner(f"'{task_name}' 정보 추출 중...")
+        try:
+            # 각 AI는 문서 전체를 읽고 자신의 임무만 수행
+            response = chain.invoke({
+                "context": _full_text, 
+                "fields_to_extract": ", ".join(f'"{f}"' for f in fields)
+            })
+            json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
+            if json_match:
+                extracted_data = json.loads(json_match.group(0))
+                final_extracted_data.update(extracted_data)
+        except Exception as e:
+            st.warning(f"'{task_name}' 정보 추출 중 오류: {e}")
 
-    # --- <<< '분업' 시스템 종료: 수집된 정보로 보고서 조립 >>> ---
+    # --- '분업' 시스템 종료: 수집된 정보로 보고서 조립 ---
     summary = format_summary_from_json(final_extracted_data)
 
-    # --- KSF 및 목차 생성 (기존 방식과 동일) ---
+    # --- KSF 및 목차 생성 (창의적 작업) ---
     ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
     ksf_context = "\n\n".join([doc.page_content for doc in ksf_docs])
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
@@ -125,4 +126,31 @@ def generate_reports(_vector_db, _full_text, run_id=0):
 
     return summary, ksf, presentation_outline
 
-# (handle_chat_interaction과 to_excel 함수는 이전과 동일하게 유지)
+def handle_chat_interaction(user_input, vector_db_in_session, current_summary, current_ksf, current_outline):
+    llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    retriever = vector_db_in_session.as_retriever()
+    prompt = PromptTemplate.from_template(EDITOR_PROMPT_TEMPLATE)
+    relevant_docs = retriever.get_relevant_documents(user_input)
+    context_text = "\n\n".join([doc.page_content for doc in relevant_docs])
+
+    chain = prompt | llm
+    response = chain.invoke({
+        "summary": current_summary, 
+        "ksf": current_ksf, 
+        "outline": current_outline,
+        "user_request": user_input, 
+        "context": context_text
+    })
+    return response.content
+
+def to_excel(summary, ksf, outline):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_summary = pd.DataFrame([summary.replace("\n", "\r\n")], columns=["내용"])
+        df_summary.to_excel(writer, sheet_name='제안서 요약', index=False)
+        df_ksf = pd.DataFrame([ksf.replace("\n", "\r\n")], columns=["내용"])
+        df_ksf.to_excel(writer, sheet_name='핵심 성공 요소', index=False)
+        df_outline = pd.DataFrame([outline.replace("\n", "\r\n")], columns=["내용"])
+        df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
+    processed_data = output.getvalue()
+    return processed_data
