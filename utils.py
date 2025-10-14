@@ -11,7 +11,8 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
-from prompts import FACT_EXTRACTION_PROMPT, STRATEGIC_SUMMARY_PROMPT, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT_TEMPLATE
+# 원본 프롬프트 전체를 임포트합니다.
+from prompts import FACT_EXTRACTION_PROMPT, STRATEGIC_SUMMARY_PROMPT, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT_TEMPLATE, EDITOR_PROMPT_TEMPLATE
 
 @st.cache_resource(show_spinner="PDF 분석 및 데이터베이스 생성 중...")
 def get_vector_db(_uploaded_file):
@@ -46,7 +47,7 @@ def extract_facts(_full_text, run_id=0):
     llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     prompt = PromptTemplate.from_template(FACT_EXTRACTION_PROMPT)
     chain = prompt | llm
-    context = _full_text[:8000] # Use first 8000 chars for efficiency
+    context = _full_text[:8000]
 
     response = chain.invoke({"context": context})
     try:
@@ -88,11 +89,13 @@ def generate_creative_reports(_vector_db, summary, run_id=0):
     creative_context_docs = _vector_db.similarity_search("RFP의 전체적인 내용, 사업 목표, 요구사항, 평가 기준", k=10)
     creative_context = "\n\n---\n\n".join([doc.page_content for doc in creative_context_docs])
 
+    # KSF 생성 (원본 프롬프트 사용)
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
     ksf_chain = ksf_prompt | llm
     ksf_response = ksf_chain.invoke({"context": creative_context})
     ksf = ksf_response.content
 
+    # 발표자료 목차 생성 (원본 프롬프트 사용)
     outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
     outline_chain = outline_prompt | llm
     outline_response = outline_chain.invoke({
@@ -118,7 +121,7 @@ def to_excel(facts, summary, ksf, outline):
         df_ksf.to_excel(writer, sheet_name='핵심 성공 요소', index=False)
 
         df_outline = pd.DataFrame([outline.replace("\n", "\r\n")], columns=["내용"])
-        df_outline.to_excel(writer, sheet
+        df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
+
     processed_data = output.getvalue()
     return processed_data
-
