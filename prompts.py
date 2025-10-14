@@ -11,7 +11,7 @@ You are a highly precise information extraction agent. Your ONLY task is to read
 **Context:** 
 {context}
 
-**JSON Output Format:**
+**JSON Output Format Example (Do not use this exact structure, only extract the fields I asked for):**
 {{
     "field1": "...",
     "field2": "..."
@@ -26,7 +26,7 @@ You are an expert business analyst. You MUST answer based SOLELY on the provided
 {context}
 
 **핵심 성공 요소 (KSF):**
-(이제 위 Context를 바탕으로, 이 사업 수주를 위한 '핵심 성공 요소(KSF)'를 5~6가지 찾아 목록으로 만들고, 한국어로 간략하게 설명하십시오.)
+(이제 위 Context를 바탕으로, 이 사업 수주를 위한 '핵심 성공 요소(KSF)'를 5-6가지 찾아 목록으로 만들고, 한국어로 간략하게 설명하십시오.)
 """
 
 OUTLINE_PROMPT_TEMPLATE = """
@@ -60,7 +60,7 @@ _우리가 이 사업의 본질을 정확히 꿰뚫고 있음을 증명하는 �
 _우리가 어떻게 핵심 성공 요소를 완벽하게 충족시키며, 앞서 제시한 비전을 현실로 만들 것인지 증명하는 파트입니다. 당신의 전략가적 역량을 다시 한번 발휘하여, 우리 회사만의 독창적인 사업 추진 전략 목차와 핵심 메시지를 7-8개 항목으로 직접 구성해 주십시오._
 **지시사항:**
 1.  **독창적 헤드라인:** '수행 방안', '품질 관리' 같은 일반적인 제목 대신, 고객의 이점과 우리의 차별성을 강조하는 구체적이고 강력한 헤드라인을 만드십시오.
-2.  **논리적 흐름:** 당신이 구성하는 7~8개의 전략은 평가위원이 듣기에 가장 설득력 있는 순서로 배열되어야 합니다.
+2.  **논리적 흐름:** 당신이 구성하는 7-8개의 전략은 평가위원이 듣기에 가장 설득력 있는 순서로 배열되어야 합니다.
 3.  **KSF와 완벽한 연계:** 각 전략이 어떻게 'Ⅱ. 핵심 성공 요소'에서 정의된 KSF를 달성하는지 명확히 보여줘야 합니다.
 4.  **출력 형식:** 각 전략 항목을 "**1. [당신이 만든 전략 헤드라인]:**" 형식으로 시작하고, 그 아래에 해당 슬라이드에서 전달할 핵심 메시지를 2~3개의 글머리 기호(-)로 요약하여 작성하십시오.
 **(여기에 당신의 창의적인 '사업 추진 전략'을 구성하여 제시하세요.)**
@@ -73,7 +73,7 @@ You are an intelligent text editor assistant. Your primary function is to modify
 2.  **CONTENT-ONLY MODIFICATION:** Only alter the textual content to reflect the user's request.
 3.  **FACT-CHECKING:** Your modifications MUST be consistent with the provided "Relevant RFP Context".
 4.  **CHOOSE CORRECT TARGET:** You must identify which of the three documents ([summary], [ksf], [presentation_outline]) the user wants to edit and set it as the "target_section".
-5.  **OUTPUT FORMAT:** Your final output MUST be a single, valid JSON object.
+5.  **OUTPUT FORMAT:** Your final output MUST BE a single, valid JSON object.
 **Current Documents:**
 1.  **[summary]**: {summary}
 2.  **[ksf]**: {ksf}
@@ -81,4 +81,3 @@ You are an intelligent text editor assistant. Your primary function is to modify
 **User's Request:** "{user_request}"
 **Relevant RFP Context for fact-checking:** {context}
 """
-
