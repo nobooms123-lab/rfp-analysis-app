@@ -1,4 +1,5 @@
 # prompts.py
+
 SUMMARY_PROMPT_TEMPLATE = """
 You are an expert analyst. Based on the provided context, generate a detailed summary report in Korean.
 The user's question is a general instruction to proceed; focus on summarizing the context provided.
@@ -23,50 +24,45 @@ Korean Summary Report:
 ### 5. 결론: 제안 전략 수립을 위한 핵심 고려사항
 - 위 분석 내용을 바탕으로, 이 사업 수주를 위해 우리 제안사가 반드시 고려해야 할 핵심 성공 요인(Critical Success Factors) 3가지를 제안해 주십시오.
 """
+
 KSF_PROMPT_TEMPLATE = """
-Based on the provided context, identify and list 5-6 critical success factors (KSFs) for winning this project. Explain each factor briefly in Korean.
+제공된 내용을 바탕으로, 이 사업 수주를 위한 '핵심 성공 요소(KSF)'를 5~6가지 찾아 목록으로 만들어 주십시오.
+각 요소에 대해 한국어로 간략하게 설명해야 합니다.
+
 Context: {context}
 Question: {question}
-KSFs:
+
+**핵심 성공 요소 (KSF):**
 """
+
 OUTLINE_PROMPT_TEMPLATE = """
 You are a world-class proposal strategist and storyteller. Your ultimate goal is to win this project by creating a presentation that deeply resonates with the evaluation committee and persuades them that we are the only viable partner.
-
 **Input Documents:**
 1.  **RFP Context:** {context}
 2.  **Project Summary:** {summary}
 3.  **Key Success Factors (KSFs):** {ksf}
-
 **Your Task:**
 Generate a complete, strategic presentation outline in Korean. For Parts I and III, you will act as a creative director, designing the narrative flow and key messages from scratch. Part II will serve as the logical bridge.
-
 ---
 **발표자료 목차**
-
 ## Ⅰ. 사업의 이해 (5 페이지)
 _이 파트는 평가위원의 마음을 사로잡는 가장 중요한 부분입니다. 정해진 템플릿을 완전히 무시하고, 당신의 전략적 통찰력을 발휘하여 고객을 감동시킬 5페이지 분량의 오프닝 '서사'를 직접 구축하십시오._
-
 **지시사항:**
 1.  **강력한 스토리라인 구성:** '배경, 문제, 목표' 같은 단순 나열을 피하십시오. 대신, 평가위원이 몰입할 수 있는 기승전결 구조의 스토리를 만드세요. 예를 들어, (1) 현재 상황의 '불편한 진실'을 제시하고 → (2) 이 문제가 초래할 '미래의 위기'를 경고하며 → (3) 우리가 함께 만들어갈 '위대한 비전'을 제시하고 → (4) 그 비전을 향한 '첫걸음'으로서 이 사업의 가치를 정의하는 흐름을 구성할 수 있습니다.
 2.  **감성적이고 설득력 있는 헤드라인:** 각 페이지의 헤드라인은 단순한 정보 전달이 아닌, 평가위원의 감성을 자극하고 공감을 유도해야 합니다. (예: 'Page 2: 주요 문제점' (X) → 'Page 2: 성장의 발목을 잡는 세 가지 그림자' (O))
 3.  **데이터 기반의 공감대 형성:** 'Project Summary'와 'RFP Context'에서 얻은 정보를 활용하여, 우리가 고객의 상황을 얼마나 깊이 이해하고 있는지 구체적인 데이터나 현상을 근거로 제시해야 합니다.
 4.  **출력 형식:** 당신이 창조한 5개의 슬라이드 컨셉을 "**1 페이지: [당신이 만든 감성적 헤드라인]:**" 형식으로 시작하고, 그 아래에 해당 슬라이드에서 전달할 핵심 메시지를 2~3개의 글머리 기호(-)로 요약하여 작성하십시오.
-
 **(여기에 당신의 창의적인 '사업의 이해' 5페이지를 구성하여 제시하세요.)**
-
 ## Ⅱ. 핵심 성공 요소 (1 페이지)
 _우리가 이 사업의 본질을 정확히 꿰뚫고 있음을 증명하는 논리적 징검다리입니다._
 - (제공된 'Key Success Factors (KSFs)' 문서를 바탕으로, 이 사업을 성공시키기 위한 가장 중요한 조건 5-6가지를 목록(bullet points)으로 명확하게 제시하세요.)
-
 ## Ⅲ. 사업 추진 전략 (7-8 페이지)
-_우리가 어떻게 핵심 성공 요소를 완벽하게 충족시키며, 앞서 제시한 비전을 현실로 만들 것인지 증명하는 파트입니다. 당신의 전략가적 역량을 다시 한번 발휘하여, 우리 회사만의 독창적인 사업 추진 전략 목차와 핵심 메시지를 7~8개 항목으로 직접 구성해 주십시오._
-
+_우리가 어떻게 핵심 성공 요소를 완벽하게 충족시키며, 앞서 제시한 비전을 현실로 만들 것인지 증명하는 파트입니다. 당신의 전략가적 역량을 다시 한번 발휘하여, 우리 회사만의 독창적인 사업 추진 전략 목차와 핵심 메시지를 7-8개 항목으로 직접 구성해 주십시오._
 **지시사항:**
 1.  **독창적 헤드라인:** '수행 방안', '품질 관리' 같은 일반적인 제목 대신, 고객의 이점과 우리의 차별성을 강조하는 구체적이고 강력한 헤드라인을 만드십시오. (예: '데이터 기반 실시간 품질 예측 시스템 도입')
 2.  **논리적 흐름:** 당신이 구성하는 7~8개의 전략은 평가위원이 듣기에 가장 설득력 있는 순서로 배열되어야 합니다.
 3.  **KSF와 완벽한 연계:** 각 전략이 어떻게 'Ⅱ. 핵심 성공 요소'에서 정의된 KSF를 달성하는지 명확히 보여줘야 합니다.
 4.  **출력 형식:** 각 전략 항목을 "**1. [당신이 만든 전략 헤드라인]:**" 형식으로 시작하고, 그 아래에 해당 슬라이드에서 전달할 핵심 메시지를 2~3개의 글머리 기호(-)로 요약하여 작성하십시오.
-
 **(여기에 당신의 창의적인 '사업 추진 전략'을 구성하여 제시하세요.)**
 ---
 """
