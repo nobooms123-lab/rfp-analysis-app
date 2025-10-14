@@ -39,7 +39,6 @@ def get_vector_db(_uploaded_file):
     return vector_db
 
 # --- 2. 데이터 생성 함수 (@st.cache_data 사용) ---
-# <<< 수정된 부분: run_id 인자를 추가하여 캐시를 무효화 >>>
 @st.cache_data(show_spinner="AI가 분석 보고서를 생성 중입니다...")
 def generate_reports(_vector_db, run_id=0):
     if _vector_db is None:
@@ -101,7 +100,8 @@ def handle_chat_interaction(user_input, vector_db_in_session, current_summary, c
 
 def to_excel(summary, ksf, outline):
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='open_xl') as writer:
+    # <<< 수정된 부분: open_xl -> openpyxl 오타 수정 >>>
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_summary = pd.DataFrame([summary.replace("\n", "\r\n")], columns=["내용"])
         df_summary.to_excel(writer, sheet_name='제안서 요약', index=False)
         
