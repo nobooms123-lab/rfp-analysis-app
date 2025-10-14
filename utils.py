@@ -40,7 +40,6 @@ def get_vector_db(_uploaded_file):
 def format_summary_from_json(data: dict) -> str:
     """추출된 JSON 데이터를 최종 Markdown 보고서 형식으로 변환합니다."""
     
-    # AI가 추출한 '주요 제약사항 및 요구사항' 텍스트를 가져옴
     constraints_and_reqs = data.get("주요_제약사항_및_요구사항", "명시된 제약사항 없음")
 
     report = f"""
@@ -68,7 +67,6 @@ def format_summary_from_json(data: dict) -> str:
 - 위 분석 내용을 바탕으로, 이 사업 수주를 위해 우리 제안사가 반드시 고려해야 할 핵심 성공 요인(Critical Success Factors) 3가지를 제안해 주십시오.
 """
     return report.strip()
-
 
 @st.cache_data(show_spinner="AI가 분석 보고서를 생성 중입니다...")
 def generate_reports(_vector_db, _full_text, run_id=0):
