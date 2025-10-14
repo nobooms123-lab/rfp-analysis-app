@@ -1,45 +1,30 @@
 # prompts.py
 
-SUMMARY_PROMPT_TEMPLATE = """
+SUMMARY_JSON_EXTRACT_PROMPT = """
 [CRITICAL INSTRUCTION]
-You are a highly precise information extraction agent. Your ONLY task is to read the entire document provided in the 'Context' below and fill in the values for each item in the 'Korean Summary Report' template.
-- Extract the information VERBATIM from the document as much as possible.
-- If, and only if, you cannot find the specific information after reading the entire document, you MUST write "문서에서 해당 정보 찾을 수 없음".
-- Do not summarize, interpret, or add any information that is not explicitly in the document.
-
-[EXCLUSION RULE]
-You must **ignore administrative and formatting instructions** for writing the proposal itself. Focus only on the project's substance.
-- **Examples to Exclude:** Instructions on how to submit documents, required proposal table of contents, page limits, printing methods, submission deadlines, contact information, etc.
+You are a highly precise information extraction agent. Your ONLY task is to read the 'Context' below and extract the specified information into a valid JSON format.
+- Find the information for each key in the provided JSON schema.
+- For "주요_제약사항_및_요구사항", combine all relevant constraints, mandatory technologies, security, and quality requirements into a single text block.
+- If you cannot find the information for a key, the value MUST be "찾을 수 없음".
+- Your output MUST be ONLY the JSON object, with no other text before or after it.
 
 **Context:** 
 {context}
 
-**Korean Summary Report:**
-(이제 위 Context 문서를 읽고, 아래 템플릿의 각 항목에 해당하는 정보를 정확히 추출하여 기입하십시오.)
-
-### 1. 사업 개요 및 추진 배경
-- **(사업명)**: 
-- **(추진 배경 및 필요성)**: 
-- **(사업의 최종 목표)**: 
-
-### 2. 사업 범위 및 주요 요구사항
-- **(주요 사업 범위)**: 
-- **(핵심 기능 요구사항)**: 
-- **(데이터 및 연동 요구사항)**: 
-
-### 3. 사업 수행 조건 및 제약사항
-- **(사업 기간)**: 
-- **(사업 예산)**: 
-- **(주요 제약사항)**: (사업 수행 시 반드시 지켜야 할 제약사항이나 특수 조건이 있다면 명시하고, 없다면 '명시된 제약사항 없음'으로 기재)
-    - **(필수 도입 기술 및 솔루션)**: 
-    - **(보안 및 품질 요구사항)**: 
-
-### 4. 제안서 평가 기준
-- **(평가 항목 및 배점)**: 
-- **(정성적 평가 항목 분석)**: 
-
-### 5. 결론: 제안 전략 수립을 위한 핵심 고려사항
-- (위 추출 내용을 바탕으로, 이 사업 수주를 위해 반드시 고려해야 할 핵심 성공 요인(Critical Success Factors) 3가지를 제안해 주십시오.)
+**JSON Schema:**
+{
+    "사업명": "...",
+    "추진_배경_및_필요성": "...",
+    "사업의_최종_목표": "...",
+    "주요_사업_범위": "...",
+    "핵심_기능_요구사항": "...",
+    "데이터_및_연동_요구사항": "...",
+    "사업_기간": "...",
+    "사업_예산": "...",
+    "주요_제약사항_및_요구사항": "...",
+    "평가_항목_및_배점": "...",
+    "정성적_평가_항목_분석": "..."
+}
 """
 
 KSF_PROMPT_TEMPLATE = """
@@ -67,7 +52,6 @@ Generate a complete, strategic presentation outline in Korean.
 ---
 **발표자료 목차**
 ## Ⅰ. 사업의 이해 (5 페이지)
-... (이하 생략, 기존 내용과 동일)
 _이 파트는 평가위원의 마음을 사로잡는 가장 중요한 부분입니다. 당신의 전략적 통찰력을 발휘하여 고객을 감동시킬 5페이지 분량의 오프닝 '서사'를 직접 구축하십시오._
 **지시사항:**
 1.  **사업 유형 판단 (가장 중요):** 'RFP Context'를 분석하여 이 사업이 **(A) 완전히 새로운 시스템을 구축**하는 것인지, **(B) 기존 시스템을 개선/교체**하는 것인지 먼저 판단하십시오. 이 판단은 스토리라인의 기반이 됩니다.
@@ -106,5 +90,3 @@ You are an intelligent text editor assistant. Your primary function is to modify
 **User's Request:** "{user_request}"
 **Relevant RFP Context for fact-checking:** {context}
 """
-
-
