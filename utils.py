@@ -11,9 +11,7 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
-from langchain.chains.question_answering import load_qa_chain
-from prompts import SUMMARY_INITIAL_PROMPT, SUMMARY_REFINE_PROMPT, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT_TEMPLATE, EDITOR_PROMPT_TEMPLATE
-
+from prompts import BIDDER_VIEW_SUMMARY_PROMPT, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT_TEMPLATE, EDITOR_PROMPT_TEMPLATE
 @st.cache_resource(show_spinner="PDF 분석 및 데이터베이스 생성 중...")
 def get_vector_db(_uploaded_file):
     try:
@@ -29,65 +27,53 @@ def get_vector_db(_uploaded_file):
         return None, None
     if not full_text:
         return None, None
-
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
     chunks = text_splitter.split_text(full_text)
     doc_chunks = [Document(page_content=t) for t in chunks]
     embeddings = OpenAIEmbeddings(api_key=st.secrets["OPENAI_GPT_API_KEY"])
     vector_db = FAISS.from_documents(doc_chunks, embeddings)
-    
     return vector_db, full_text
-
-@st.cache_data(show_spinner="AI가 분석 보고서를 생성 중입니다...")
-def generate_reports(_vector_db, _full_text, run_id=0):
-    if _vector_db is None or _full_text is None:
-        return None, None, None
-    
-    # 1. '정보 추출 로봇' (정확성 100%, 창의성 0%)
-    extraction_llm = ChatOpenAI(model="gpt-4o", temperature=0.0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
-    # 2. '전문 전략 분석가' (사실 기반 창의성)
-    creative_llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
-        
-    # --- Part 1: 제안서 요약 (느리지만 정확한 '정보 누적' 방식) ---
-    st.info("1/3 - 제안서 요약 정보 추출 중... (문서 전체를 순차 분석하므로 시간이 다소 소요될 수 있습니다.)")
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=3500, chunk_overlap=200)
-    summary_doc_chunks = [Document(page_content=t) for t in text_splitter.split_text(_full_text)]
-
-    question_prompt = PromptTemplate.from_template(SUMMARY_INITIAL_PROMPT)
-    refine_prompt = PromptTemplate.from_template(SUMMARY_REFINE_PROMPT)
-
-    refine_chain = load_qa_chain(
-        llm=extraction_llm,
-        chain_type="refine",
-        question_prompt=question_prompt,
-        refine_prompt=refine_prompt,
-        return_intermediate_steps=False,
+# --- Part 1: 제안서 요약 생성 ---
+@st.cache_data(show_spinner="AI 컨설턴트가 제안사 관점에서 RFP를 분석 중입니다...")
+def generate_summary(_vector_db, run_id=0):
+    if _vector_db is None:
+        return None
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    # 요약 생성을 위한 최적의 정보(Context)를 하이브리드 방식으로 수집
+    # 문서 전체의 핵심 내용을 포괄하도록 검색 쿼리를 광범위하게 설정
+    relevant_docs = _vector_db.similarity_search(
+        "사업 개요, 추진 배경, 사업 범위, 요구사항, 사업 예산, 사업 기간, 계약 조건, 평가 기준",
+        k=15  # 충분한 정보를 제공하기 위해 k값 증가
     )
-    summary_response = refine_chain.invoke({"input_documents": summary_doc_chunks, "question": "DUMMY_QUESTION"})
-    summary = summary_response["output_text"]
-
-    # --- Part 2: 핵심 성공 요소 (빠르고 창의적인 '하이브리드' 방식) ---
-    st.info("2/3 - 핵심 성공 요소 분석 중...")
+    context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
+    prompt = PromptTemplate.from_template(BIDDER_VIEW_SUMMARY_PROMPT)
+    chain = prompt | llm
+    response = chain.invoke({"context": context})
+    return response.content
+# --- Part 2: KSF 및 목차 생성 ---
+@st.cache_data(show_spinner="AI 전략가가 핵심 성공 요소와 발표 목차를 구상 중입니다...")
+def generate_creative_reports(_vector_db, summary, run_id=0):
+    if _vector_db is None or summary is None:
+        return None, None
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    # 창의적 작업을 위한 풍부한 Context 생성
     creative_context_docs = _vector_db.similarity_search("RFP의 전체적인 내용, 사업 목표, 요구사항, 평가 기준", k=10)
     creative_context = "\n\n---\n\n".join([doc.page_content for doc in creative_context_docs])
-    
+    # 2-1: KSF 생성
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
-    ksf_chain = ksf_prompt | creative_llm
+    ksf_chain = ksf_prompt | llm
     ksf_response = ksf_chain.invoke({"context": creative_context})
     ksf = ksf_response.content
-
-    # --- Part 3: 발표자료 목차 (빠르고 창의적인 '하이브리드' 방식) ---
-    st.info("3/3 - 발표자료 목차 생성 중...")
+    # 2-2: 발표자료 목차 생성
     outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
-    outline_chain = outline_prompt | creative_llm
+    outline_chain = outline_prompt | llm
     outline_response = outline_chain.invoke({
         "summary": summary,
         "ksf": ksf,
-        "context": creative_context 
+        "context": creative_context
     })
     presentation_outline = outline_response.content
-
-    return summary, ksf, presentation_outline
+    return ksf, presentation_outline
 
 
 def handle_chat_interaction(user_input, vector_db_in_session, current_summary, current_ksf, current_outline):
@@ -118,4 +104,5 @@ def to_excel(summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
 
