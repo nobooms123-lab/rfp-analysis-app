@@ -39,17 +39,24 @@ def get_vector_db(_uploaded_file):
     return vector_db
 
 # --- 2. 데이터 생성 함수 (@st.cache_data 사용) ---
+# <<< 수정된 부분: run_id 인자를 추가하여 캐시를 무효화 >>>
 @st.cache_data(show_spinner="AI가 분석 보고서를 생성 중입니다...")
-def generate_reports(_vector_db):
+def generate_reports(_vector_db, run_id=0):
     if _vector_db is None:
         return None, None, None
     
-    # <<< 수정된 부분: temperature 값을 0.2에서 0.7로 높여 창의적인 답변을 유도 >>>
     llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
         
-    summary_chain = load_qa_chain(llm, chain_type="refine")
-    summary_docs = _vector_db.similarity_search("RFP의 전체 내용을 상세히 요약해 주세요.", k=15)
-    summary = summary_chain.invoke({"input_documents": summary_docs, "question": "제공된 RFP 문서의 첫 부분을 바탕으로, 아래 템플릿에 맞춰 요약 보고서 초안을 한국어로 작성해 주십시오. 이후 제공되는 내용으로 계속해서 보고서를 완성해 나갈 것입니다:\n\n" + SUMMARY_PROMPT_TEMPLATE})["output_text"]
+    summary_prompt = PromptTemplate.from_template(SUMMARY_PROMPT_TEMPLATE)
+    summary_chain = load_qa_chain(llm, chain_type="stuff", prompt=summary_prompt)
+    summary_docs = _vector_db.similarity_search(
+        "이 RFP 문서의 사업 개요, 배경, 목표, 범위, 요구사항, 기간, 예산, 평가 기준을 포함한 전반적인 내용", 
+        k=10
+    )
+    summary = summary_chain.invoke({
+        "input_documents": summary_docs,
+        "question": "제공된 Context를 바탕으로, 템플릿에 맞춰 상세 요약 보고서를 작성해 주십시오."
+    })["output_text"]
 
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
     ksf_chain = load_qa_chain(llm, chain_type="stuff", prompt=ksf_prompt)
@@ -94,7 +101,7 @@ def handle_chat_interaction(user_input, vector_db_in_session, current_summary, c
 
 def to_excel(summary, ksf, outline):
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+    with pd.ExcelWriter(output, engine='open_xl') as writer:
         df_summary = pd.DataFrame([summary.replace("\n", "\r\n")], columns=["내용"])
         df_summary.to_excel(writer, sheet_name='제안서 요약', index=False)
         
