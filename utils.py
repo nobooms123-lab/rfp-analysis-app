@@ -11,7 +11,6 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
-from langchain.chains.question_answering import load_qa_chain
 from prompts import SUMMARY_PROMPT_TEMPLATE, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT_TEMPLATE, EDITOR_PROMPT_TEMPLATE
 
 @st.cache_resource(show_spinner="PDF 분석 및 데이터베이스 생성 중...")
@@ -43,30 +42,16 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     if _vector_db is None or _full_text is None:
         return None, None, None
     
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    # --- <<< 요약(정보추출)용 LLM과 창의적 작업용 LLM을 분리 >>> ---
+    # 정확한 정보 추출을 위해 temperature를 낮춘 LLM
+    extraction_llm = ChatOpenAI(model="gpt-4o", temperature=0.1, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    # KSF, 목차 등 창의적 분석을 위한 LLM
+    creative_llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
         
-    # --- <<< 요약 생성을 위한 정보 수집 방식 전면 업그레이드 >>> ---
-    # 1. 문서의 맨 앞부분(헤더)을 강제로 포함
-    header_doc = Document(page_content=_full_text[:4000])
-
-    # 2. 요약 템플릿의 각 항목에 맞춰, 주제별로 명시적 검색 수행
-    scope_docs = _vector_db.similarity_search("사업 범위, 주요 요구사항, 데이터 및 연동 요구사항", k=3)
-    condition_docs = _vector_db.similarity_search("사업 기간, 사업 예산, 제약사항", k=3)
-    tech_docs = _vector_db.similarity_search("필수 도입 기술, 솔루션, 기술 스택", k=2)
-    quality_docs = _vector_db.similarity_search("보안 요구사항, 품질 요구사항, 개인정보보호", k=2)
-    eval_docs = _vector_db.similarity_search("제안서 평가 기준, 평가 항목, 배점", k=2)
-
-    # 3. 모든 검색 결과를 합치고 중복을 제거하여 최종 Context 생성
-    all_docs = [header_doc] + scope_docs + condition_docs + tech_docs + quality_docs + eval_docs
-    # 순서를 유지하면서 중복 제거
-    unique_docs_dict = {doc.page_content: doc for doc in all_docs}
-    final_docs = list(unique_docs_dict.values())
-    
-    summary_context = "\n\n---\n\n".join([doc.page_content for doc in final_docs])
-
-    # 4. AI에게 최종 Context를 전달하여 요약 생성
+    # --- <<< 요약 생성: AI에게 문서 전체를 전달하여 직접 정보를 찾게 하는 방식으로 변경 >>> ---
+    summary_context = _full_text
     summary_prompt = PromptTemplate.from_template(SUMMARY_PROMPT_TEMPLATE)
-    summary_chain = summary_prompt | llm
+    summary_chain = summary_prompt | extraction_llm
     summary_response = summary_chain.invoke({"context": summary_context})
     summary = summary_response.content
 
@@ -74,7 +59,7 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
     ksf_context = "\n\n".join([doc.page_content for doc in ksf_docs])
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
-    ksf_chain = ksf_prompt | llm
+    ksf_chain = ksf_prompt | creative_llm
     ksf_response = ksf_chain.invoke({"context": ksf_context})
     ksf = ksf_response.content
 
@@ -82,7 +67,7 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     outline_docs = _vector_db.similarity_search("RFP의 전체 내용을 분석해줘.", k=10)
     context_text = "\n\n".join([doc.page_content for doc in outline_docs])
     outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
-    outline_chain = outline_prompt | llm
+    outline_chain = outline_prompt | creative_llm
     outline_response = outline_chain.invoke({
         "summary": summary,
         "ksf": ksf,
