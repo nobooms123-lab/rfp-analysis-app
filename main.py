@@ -39,7 +39,6 @@ if uploaded_file:
 
         if "summary" not in st.session_state:
             current_run_id = st.session_state.get('run_id', 0)
-            # <<< 핵심 변경: generate_reports에 ocr_text 원본을 함께 전달 >>>
             summary, ksf, outline = generate_reports(vector_db, ocr_text, run_id=current_run_id)
             
             if summary and ksf and outline:
