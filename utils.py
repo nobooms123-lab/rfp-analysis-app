@@ -17,7 +17,6 @@ from prompts import SUMMARY_PROMPT_TEMPLATE, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT
 # --- 1. 리소스 생성 함수 (@st.cache_resource 사용) ---
 @st.cache_resource(show_spinner="PDF 분석 및 데이터베이스 생성 중...")
 def get_vector_db(_uploaded_file):
-    # 1-1. 텍스트 추출
     try:
         file_bytes = _uploaded_file.getvalue()
         doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -32,7 +31,6 @@ def get_vector_db(_uploaded_file):
     if not full_text:
         return None             
 
-    # 1-2. 텍스트 분할 및 DB 생성/반환
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
     chunks = text_splitter.split_text(full_text)
     doc_chunks = [Document(page_content=t) for t in chunks]
@@ -45,23 +43,22 @@ def get_vector_db(_uploaded_file):
 def generate_reports(_vector_db):
     if _vector_db is None:
         return None, None, None
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    
+    # <<< 수정된 부분: temperature 값을 0.2에서 0.7로 높여 창의적인 답변을 유도 >>>
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
         
-    # 2-1. 요약 생성 (refine)
     summary_chain = load_qa_chain(llm, chain_type="refine")
     summary_docs = _vector_db.similarity_search("RFP의 전체 내용을 상세히 요약해 주세요.", k=15)
     summary = summary_chain.invoke({"input_documents": summary_docs, "question": "제공된 RFP 문서의 첫 부분을 바탕으로, 아래 템플릿에 맞춰 요약 보고서 초안을 한국어로 작성해 주십시오. 이후 제공되는 내용으로 계속해서 보고서를 완성해 나갈 것입니다:\n\n" + SUMMARY_PROMPT_TEMPLATE})["output_text"]
 
-    # 2-2. KSF 생성 (stuff 방식으로 변경 및 한글 프롬프트 적용)
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
     ksf_chain = load_qa_chain(llm, chain_type="stuff", prompt=ksf_prompt)
     ksf_docs = _vector_db.similarity_search("이 사업의 핵심 성공 요소를 분석해 주세요.", k=7)
     ksf = ksf_chain.invoke({
         "input_documents": ksf_docs,
-        "question": "문서 내용을 바탕으로 핵심 성공 요소를 분석해줘." # 이 질문은 형식적이며, 실제 지시는 프롬프트가 수행
+        "question": "문서 내용을 바탕으로 핵심 성공 요소를 분석해줘."
     })["output_text"]
 
-    # 2-3. 발표자료 목차 생성 (stuff)
     outline_retriever = _vector_db.as_retriever()
     outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
     outline_chain = load_qa_chain(llm, chain_type="stuff", prompt=outline_prompt)
@@ -109,5 +106,3 @@ def to_excel(summary, ksf, outline):
         
     processed_data = output.getvalue()
     return processed_data
-    return processed_data
-
