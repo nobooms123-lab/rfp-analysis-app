@@ -38,6 +38,9 @@ if uploaded_file:
         st.session_state.ocr_text = ocr_text
 
         if "summary" not in st.session_state:
+            # <<< 추가된 부분: 이 한 줄이 빠져서 오류가 발생했습니다. >>>
+            current_run_id = st.session_state.get('run_id', 0)
+            
             summary, ksf, outline = generate_reports(vector_db, ocr_text, run_id=current_run_id)
             
             if summary and ksf and outline:
@@ -126,3 +129,4 @@ if "summary" in st.session_state:
                         error_message = f"응답 처리 오류: {e}\n\nAI 응답: {response_text}"
                         st.error(error_message)
                         st.session_state.messages.append({"role": "assistant", "content": error_message})
+
