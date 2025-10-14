@@ -38,7 +38,6 @@ def get_vector_db(_uploaded_file):
     
     return vector_db, full_text
 
-# <<< 핵심 변경: 함수가 전체 텍스트(_full_text)를 직접 받도록 수정 >>>
 @st.cache_data(show_spinner="AI가 분석 보고서를 생성 중입니다...")
 def generate_reports(_vector_db, _full_text, run_id=0):
     if _vector_db is None or _full_text is None:
@@ -46,26 +45,25 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     
     llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
         
-    # --- 요약 생성 (가장 확실한 방식으로 변경) ---
-    # 1. 문서의 맨 앞부분 4000자를 강제로 할당 (사업명, 기간 등 핵심 정보 보장)
+    # --- <<< 요약 생성 로직 (가장 확실하고 직접적인 방식으로 전면 교체) >>> ---
+    # 1. 문서의 맨 앞부분과, 검색된 세부 내용을 합쳐 AI에게 전달할 '문맥(Context)'을 직접 생성
     header_content = _full_text[:4000]
-    header_doc = Document(page_content=header_content)
-
-    # 2. 나머지 세부 정보를 보충하기 위해 일부 문서 검색
     detail_docs = _vector_db.similarity_search(
-        "사업 범위, 주요 요구사항, 사업 수행 조건, 제약사항, 평가 기준",
-        k=5
+        "사업 범위, 주요 요구사항, 사업 수행 조건, 제약사항, 평가 기준", k=5
     )
-    
-    # 3. '헤더 문서'를 최우선으로 하여 AI에게 전달할 최종 문서 목록 생성
-    summary_docs = [header_doc] + detail_docs
+    detail_content = "\n\n".join([doc.page_content for doc in detail_docs])
+    summary_context = f"[문서 시작 부분]\n{header_content}\n\n[문서 주요 내용]\n{detail_content}"
 
+    # 2. 문제를 일으키는 load_qa_chain 대신, 프롬프트와 LLM을 직접 연결하는 간단한 체인 생성
     summary_prompt = PromptTemplate.from_template(SUMMARY_PROMPT_TEMPLATE)
-    summary_chain = load_qa_chain(llm, chain_type="stuff", prompt=summary_prompt)
-    summary = summary_chain.invoke({
-        "input_documents": summary_docs,
+    summary_chain = summary_prompt | llm
+
+    # 3. 체인에 'context'와 'question'을 직접 전달하여 정보 유실 가능성 원천 차단
+    summary_response = summary_chain.invoke({
+        "context": summary_context,
         "question": "제공된 Context를 바탕으로, 템플릿에 맞춰 상세 요약 보고서를 작성해 주십시오."
-    })["output_text"]
+    })
+    summary = summary_response.content
 
     # --- KSF 생성 (기존 방식 유지) ---
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
