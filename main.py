@@ -1,14 +1,12 @@
 # main.py
 import streamlit as st
 import json
-# --- 변경점: 수정된 utils 함수 임포트 ---
 from utils import get_vector_db, extract_facts, generate_strategic_report, generate_creative_reports, to_excel
 
 # --- 1. 기본 설정 및 초기화 ---
 st.set_page_config(page_title="RFP 전략 분석 AI", layout="wide")
 st.title("RFP 전략 분석 및 제안서 작성 도우미")
 
-# 세션 상태 초기화
 if 'stage' not in st.session_state:
     st.session_state.stage = 0 # 0: 초기, 1: 텍스트/사실추출 완료, 2: 전략보고서 완료, 3: 전체완료
 
@@ -22,31 +20,29 @@ if uploaded_file and st.session_state.get("uploaded_filename") != uploaded_file.
     st.session_state.stage = 0
 
 # --- 3. 단계별 실행 로직 ---
-# Stage 0 -> 1: 파일 업로드 시 텍스트 추출 및 사실 정보 자동 추출
 if uploaded_file and st.session_state.stage == 0:
     st.session_state.vector_db, st.session_state.ocr_text = get_vector_db(uploaded_file)
     if st.session_state.ocr_text:
-        # --- 변경점: 사실 추출 함수 자동 호출 ---
         st.session_state.facts = extract_facts(st.session_state.ocr_text, run_id=uploaded_file.name)
         st.session_state.stage = 1
         st.rerun()
 
-# Stage 1: 사실 추출 완료, 전략 보고서 생성 대기
 if st.session_state.stage >= 1:
     st.sidebar.success("✓ 1단계: 텍스트 및 핵심 정보 추출 완료")
     if st.sidebar.button("2. 전략 보고서 생성", disabled=(st.session_state.stage > 1)):
-        # --- 변경점: 전략 보고서 생성 함수 호출 ---
-        report = generate_strategic_report(st.session_state.vector_db, run_id=uploaded_file.name)
+        report = generate_strategic_report(
+            st.session_state.vector_db,
+            st.session_state.facts,
+            run_id=uploaded_file.name
+        )
         if report:
-            st.session_state.report = report # 'summary' 대신 'report' 사용
+            st.session_state.report = report
             st.session_state.stage = 2
             st.rerun()
 
-# Stage 2: 전략 보고서 완료, KSF/목차 생성 대기
 if st.session_state.stage >= 2:
     st.sidebar.success("✓ 2단계: 전략 보고서 생성 완료")
     if st.sidebar.button("3. KSF 및 발표 목차 생성", disabled=(st.session_state.stage > 2)):
-        # --- 변경점: generate_creative_reports에 st.session_state.report 전달 ---
         ksf, outline = generate_creative_reports(st.session_state.vector_db, st.session_state.report, run_id=uploaded_file.name)
         if ksf and outline:
             st.session_state.ksf = ksf
@@ -54,7 +50,6 @@ if st.session_state.stage >= 2:
             st.session_state.stage = 3
             st.rerun()
 
-# Stage 3: 모든 작업 완료
 if st.session_state.stage == 3:
     st.sidebar.success("✓ 3단계: 모든 분석 완료!")
 
@@ -62,7 +57,6 @@ if st.session_state.stage == 3:
 if st.session_state.stage == 0:
     st.info("사이드바에서 RFP PDF 파일을 업로드하면 분석이 시작됩니다.")
 
-# --- 신규 UI: 추출된 핵심 정보 표시 ---
 if 'facts' in st.session_state and st.session_state.facts:
     with st.expander("📊 프로젝트 개요 (AI 자동 추출)", expanded=True):
         facts = st.session_state.facts
@@ -73,43 +67,43 @@ if 'facts' in st.session_state and st.session_state.facts:
         st.markdown("**추진 배경**")
         st.info(facts.get("project_background", "N/A"))
 
-# 결과 탭 구성
 tabs = st.tabs(["전략 보고서", "핵심 성공 요소", "발표자료 목차", "OCR 원본 텍스트"])
+
 with tabs[0]:
     if 'report' in st.session_state:
         st.markdown(st.session_state.report)
     else:
         st.info("2단계 '전략 보고서 생성'을 실행해주세요.")
-# ... (다른 탭들은 기존과 거의 동일)
+
 with tabs[1]:
     if 'ksf' in st.session_state:
         st.markdown(st.session_state.ksf)
     else:
         st.info("3단계 'KSF 및 발표 목차 생성'을 실행해주세요.")
+
 with tabs[2]:
     if 'presentation_outline' in st.session_state:
         st.markdown(st.session_state.presentation_outline)
     else:
         st.info("3단계 'KSF 및 발표 목차 생성'을 실행해주세요.")
+
 with tabs[3]:
     if 'ocr_text' in st.session_state:
         st.text_area("추출된 전체 텍스트", st.session_state.ocr_text, height=400)
     else:
         st.info("PDF 파일을 먼저 업로드해주세요.")
 
-
-# 다운로드 버튼 (모든 분석 완료 시에만 활성화)
 if st.session_state.stage == 3:
     st.sidebar.header("결과 다운로드")
-    # --- 변경점: to_excel에 facts 전달 ---
     excel_data = to_excel(
         st.session_state.facts,
-        st.session_state.report, 
-        st.session_state.ksf, 
+        st.session_state.report,
+        st.session_state.ksf,
         st.session_state.presentation_outline
     )
     st.sidebar.download_button(
-        label="📥 전체 결과 Excel 다운로드", data=excel_data,
+        label="📥 전체 결과 Excel 다운로드",
+        data=excel_data,
         file_name=f"{st.session_state.uploaded_filename.split('.')[0]}_analysis.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
