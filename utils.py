@@ -73,8 +73,7 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     extraction_llm = ChatOpenAI(model="gpt-4o", temperature=0.0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     creative_llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     
-    # --- '분업' 시스템 시작 ---
-    # 각 AI 호출(인턴)에게 줄 작업 목록 정의
+    # --- '지능형 분업' 시스템 시작 ---
     tasks = {
         "개요": ["사업명", "추진 배경 및 필요성", "사업의 최종 목표"],
         "범위": ["주요 사업 범위", "핵심 기능 요구사항", "데이터 및 연동 요구사항"],
@@ -90,9 +89,13 @@ def generate_reports(_vector_db, _full_text, run_id=0):
     for task_name, fields in tasks.items():
         st.spinner(f"'{task_name}' 정보 추출 중...")
         try:
-            # 각 AI는 문서 전체를 읽고 자신의 임무만 수행
+            # [핵심 변경점] 각 작업에 필요한 문서 조각만 지능적으로 검색
+            query = ", ".join(fields)
+            relevant_docs = _vector_db.similarity_search(query, k=7)
+            task_context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
+
             response = chain.invoke({
-                "context": _full_text, 
+                "context": task_context, 
                 "fields_to_extract": ", ".join(f'"{f}"' for f in fields)
             })
             json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
@@ -102,7 +105,7 @@ def generate_reports(_vector_db, _full_text, run_id=0):
         except Exception as e:
             st.warning(f"'{task_name}' 정보 추출 중 오류: {e}")
 
-    # --- '분업' 시스템 종료: 수집된 정보로 보고서 조립 ---
+    # --- '지능형 분업' 시스템 종료: 수집된 정보로 보고서 조립 ---
     summary = format_summary_from_json(final_extracted_data)
 
     # --- KSF 및 목차 생성 (창의적 작업) ---
