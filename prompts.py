@@ -1,8 +1,6 @@
 # prompts.py
-# '제안사 관점'의 요약 보고서 생성을 위한 프롬프트
-# prompts.py
 
-# 단계 1: RFP에서 객관적인 사실 정보를 정확하게 추출하기 위한 프롬프트
+# ... (FACT_EXTRACTION_PROMPT는 이전과 동일하게 유지)
 FACT_EXTRACTION_PROMPT = """
 You are a highly accurate information extraction AI. Your sole task is to scan the provided RFP context and extract the following specific pieces of information.
 - project_name: 사업명
@@ -23,11 +21,13 @@ You are a highly accurate information extraction AI. Your sole task is to scan t
 **JSON Output:**
 """
 
-# 단계 2: 제안사 내부 팀을 위한 전략적 요약 보고서 생성 프롬프트
+# --- 변경점: STRATEGIC_SUMMARY_PROMPT 구조 변경 ---
+# 1. 프로젝트 개요 정보를 입력받을 변수 추가
+# 2. 본문 내용을 '사업의 본질', '핵심 과업', '평가와 승리 전략'으로 재구성
 STRATEGIC_SUMMARY_PROMPT = """
-You are a seasoned proposal manager and consultant for a bidding company. Your task is to read the provided Request for Proposal (RFP) context and create a strategic report for your internal team (sales, engineers, project managers).
+You are a seasoned proposal manager and consultant for a bidding company. Your task is to analyze the provided RFP context and create a strategic report for your internal team. Use the provided project overview as a header and then elaborate on the strategic points.
 
-- You MUST answer based SOLELY on the provided 'Context'. Do not invent information.
+- You MUST base your analysis SOLELY on the provided 'RFP Context'.
 - Your tone should be analytical and strategic.
 
 **RFP Context:**
@@ -37,26 +37,29 @@ You are a seasoned proposal manager and consultant for a bidding company. Your t
 
 **Proposal Strategy Report (for internal use):**
 
+### 📋 프로젝트 개요
+- **사 업 명:** {project_name}
+- **사업기간:** {project_duration}
+- **사업예산:** {project_budget}
+- **추진배경:** {project_background}
+
+---
+
 ### 1. 사업의 본질: 그래서 뭘 하자는 사업인가?
-- **한 줄 요약:**
-- **고객의 진짜 속마음 (Pain Point):**
-- **우리가 달성해야 할 최종 목표:**
+- **한 줄 요약:** [RFP 전체 내용을 관통하는 이 사업의 핵심 정의를 한 문장으로 작성]
+- **고객의 진짜 속마음 (Pain Point):** [추진배경을 바탕으로 고객이 가장 해결하고 싶어하는 근본적인 문제점을 분석]
+- **우리가 달성해야 할 최종 목표:** [이 사업의 성공적인 결과물을 정량적/정성적 관점에서 구체적으로 기술]
 
 ### 2. 핵심 과업: 우리가 구체적으로 해야 할 일은?
-- **주요 구축/개발 범위:**
-- **반드시 포함해야 할 기술 스택:**
-- **데이터 및 시스템 연동:**
+- **주요 구축/개발 범위:** [개발해야 할 시스템, 기능 등 우리가 해야 할 일을 명확하게 목록화]
+- **반드시 포함해야 할 기술 스택:** [RFP에 명시된 필수 기술 요건들을 정리]
+- **데이터 및 시스템 연동:** [처리해야 할 데이터 및 연동 대상 시스템들을 정리]
 
-### 3. 계약 조건: 돈과 기간, 그리고 독소조항
-- **사업 기간:**
-- **사업 예산:**
-- **위험 요소 및 특이사항 (Red Flag):**
-
-### 4. 평가와 승리 전략: 어떻게 하면 이길 수 있는가?
-- **평가 방식 분석:**
-- **기술평가 공략법:**
+### 3. 평가와 승리 전략: 어떻게 하면 이길 수 있는가?
+- **평가 방식 분석:** [기술/가격 배점, 주요 평가 항목 등을 정리]
+- **기술평가 공략법:** [배점이 높거나 우리가 강점을 보일 수 있는 항목을 중심으로 제안서에 강조해야 할 포인트를 전략적으로 제시]
 """
-# '핵심 성공 요소' 및 '발표자료 목차' 생성을 위한 창의적 분석 프롬프트
+
 KSF_PROMPT_TEMPLATE = """
 [CRITICAL INSTRUCTION]
 You are an expert business analyst. You MUST answer based SOLELY on the provided 'Context'. The context is a rich summary of a Request for Proposal (RFP). Your task is to identify the most critical success factors (KSFs) for winning the project.
@@ -117,6 +120,7 @@ You are an intelligent text editor assistant. Your primary function is to modify
 **User's Request:** "{user_request}"
 **Relevant RFP Context for fact-checking:** {context}
 """
+
 
 
 
