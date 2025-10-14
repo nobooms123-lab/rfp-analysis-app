@@ -1,6 +1,7 @@
 # main.py
 import streamlit as st
 import json
+# 아래 라인의 오타를 수정했습니다.
 from utils import get_vector_db, extract_facts, generate_strategic_report, generate_creative_reports, to_excel
 
 # --- 1. 기본 설정 및 초기화 ---
@@ -43,6 +44,7 @@ if st.session_state.stage >= 1:
 if st.session_state.stage >= 2:
     st.sidebar.success("✓ 2단계: 전략 보고서 생성 완료")
     if st.sidebar.button("3. KSF 및 발표 목차 생성", disabled=(st.session_state.stage > 2)):
+        # 'summary' 인자에는 이제 'report'를 전달합니다.
         ksf, outline = generate_creative_reports(st.session_state.vector_db, st.session_state.report, run_id=uploaded_file.name)
         if ksf and outline:
             st.session_state.ksf = ksf
