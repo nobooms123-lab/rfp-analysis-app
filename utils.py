@@ -12,10 +12,7 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
-# [오류 해결] 헬퍼 함수 대신 직접 체인을 import 합니다.
-from langchain.chains import LLMChain
-from langchain.chains.combine_documents.stuff import StuffDocumentsChain
-from langchain.chains.mapreduce import MapReduceDocumentsChain
+from langchain.chains.summarize import load_summarize_chain
 
 # 프롬프트 임포트
 from prompts import (
@@ -48,7 +45,7 @@ def process_pdf_file(uploaded_file):
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
         return None
 
-# --- [최종 수정] Map-Reduce 체인을 수동으로 구성하여 오류 해결 ---
+# --- [수정] 데이터 정제 함수를 가장 안정적인 초기 형태로 되돌림 ---
 @st.cache_data(show_spinner="AI가 긴 RFP 문서를 분석 및 정제 중입니다... (시간이 걸릴 수 있습니다)")
 def refine_rfp_text(_full_text, run_id=0):
     if not _full_text:
@@ -56,7 +53,10 @@ def refine_rfp_text(_full_text, run_id=0):
     
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
 
-    # 1. Map 단계 (각 조각 처리용)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=500)
+    docs = text_splitter.create_documents([_full_text])
+
+    # Map 프롬프트
     map_prompt_template = """
     당신은 RFP 문서에서 지정된 섹션을 원문 그대로 복사하는 AI입니다.
     [지시사항]
@@ -73,43 +73,19 @@ def refine_rfp_text(_full_text, run_id=0):
     복사된 섹션 내용:
     """
     map_prompt = PromptTemplate.from_template(map_prompt_template)
-    map_chain = LLMChain(llm=llm, prompt=map_prompt)
-
-    # 2. Reduce 단계 (모든 조각의 결과를 합쳐 최종본 생성용)
-    combine_prompt_template = """
-    당신은 여러 조각으로 나뉘어 추출된 RFP 섹션들을 하나의 완전한 문서로 재조립하는 AI입니다.
-    [지시사항]
-    아래 "추출된 조각 모음"에 있는 텍스트들을 사용하여, 다음 규칙에 따라 최종 문서를 만드십시오.
-    1. 각 내용을 논리적인 순서에 따라 재배열하십시오. (예: 사업 개요 -> 배경 -> 사업 내용 -> 요구사항 순)
-    2. 여러 조각으로 나뉜 동일한 섹션(예: '컨설팅 요구사항')이 있다면, 그 내용들을 모두 합쳐 하나의 완전한 섹션으로 만드십시오.
-    3. 완전히 동일하게 중복되는 문장은 제거하십시오.
-    4. 최종 결과물은 한국어로 된 명확한 제목과 함께 정리된 마크다운 형식이어야 합니다.
-    --- 추출된 조각 모음 ---
-    {text}
-    ---
-    재조립된 최종 RFP 핵심 요약본:
-    """
-    combine_prompt = PromptTemplate.from_template(combine_prompt_template)
-    combine_chain = LLMChain(llm=llm, prompt=combine_prompt)
-
-    # 3. Map 단계의 결과물들을 하나로 묶는 체인
-    stuff_chain = StuffDocumentsChain(
-        llm_chain=combine_chain,
-        document_variable_name="text" # combine_prompt의 변수 이름과 일치
-    )
-
-    # 4. Map-Reduce 전체를 관장하는 메인 체인
-    map_reduce_chain = MapReduceDocumentsChain(
-        llm_chain=map_chain,
-        combine_documents_chain=stuff_chain,
-        document_variable_name="text", # map_prompt의 변수 이름과 일치
-    )
-
-    # 5. 텍스트를 분할하여 체인 실행
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=500)
-    docs = text_splitter.create_documents([_full_text])
     
-    response = map_reduce_chain.invoke({"input_documents": docs})
+    # Reduce 프롬프트 (prompts.py에서 가져옴)
+    combine_prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
+
+    # 이제 prompts.py의 combine_prompt가 {text}를 사용하므로, 추가 설정 없이도 정상 작동합니다.
+    chain = load_summarize_chain(
+        llm,
+        chain_type="map_reduce",
+        map_prompt=map_prompt,
+        combine_prompt=combine_prompt,
+    )
+
+    response = chain.invoke({"input_documents": docs})
     
     return response.get('output_text', "오류: 텍스트 정제에 실패했습니다.")
 
@@ -189,6 +165,5 @@ def to_excel(facts, summary, ksf, outline):
 
     processed_data = output.getvalue()
     return processed_data
-
 
 
