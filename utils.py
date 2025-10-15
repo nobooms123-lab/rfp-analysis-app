@@ -12,7 +12,6 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
-# Map-Reduce를 위한 import 추가
 from langchain.chains.summarize import load_summarize_chain
 
 # 프롬프트 임포트
@@ -46,23 +45,17 @@ def process_pdf_file(uploaded_file):
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
         return None
 
-# --- [수정] 데이터 정제 함수에 Map-Reduce 적용 ---
+# --- 데이터 정제 및 LLM 호출 함수들 ---
 @st.cache_data(show_spinner="AI가 긴 RFP 문서를 분석 및 정제 중입니다... (시간이 걸릴 수 있습니다)")
 def refine_rfp_text(_full_text, run_id=0):
-    """
-    Map-Reduce 방식을 사용하여 아무리 긴 RFP 텍스트라도 안정적으로 정제합니다.
-    """
     if not _full_text:
         return None
     
     llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
 
-    # 1. 텍스트를 작은 조각(chunk)으로 분할
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=500)
     docs = text_splitter.create_documents([_full_text])
 
-    # 2. Map-Reduce 체인 설정
-    # Map 프롬프트: 각 조각(chunk)에 개별적으로 적용될 프롬프트
     map_prompt_template = """
     다음은 RFP 문서의 일부입니다. 이 텍스트에서 아래 항목에 해당하는 핵심 내용만 추출하십시오.
     - 프로젝트 개요 및 핵심 정보 (사업명, 예산, 기간, 배경)
@@ -70,28 +63,22 @@ def refine_rfp_text(_full_text, run_id=0):
     - 제약사항 (COR)
     - 특이하거나 중요한 프로젝트 관리/지원 요구사항 (PMR, PSR)
     - 평가 기준
-    
     목차, 붙임 서식, 일반 계약 조건 등 불필요한 내용은 무시하십시오.
-    
     --- 텍스트 일부 ---
     {text}
     ---
-    
     핵심 내용 추출 결과:
     """
     map_prompt = PromptTemplate.from_template(map_prompt_template)
-
-    # Reduce 프롬프트: Map 단계에서 나온 모든 요약본들을 최종적으로 통합할 때 사용할 프롬프트
-    # 이 프롬프트는 우리가 원래 사용하던 상세한 프롬프트(RFP_REFINEMENT_PROMPT)를 그대로 활용합니다.
-    # 이것이 최종 결과물의 형식을 결정합니다.
     combine_prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
 
-    # 3. Map-Reduce 체인 생성 및 실행
+    # [오류 수정] Pydantic 오류 해결을 위해 document_variable_name을 명시적으로 지정
     chain = load_summarize_chain(
         llm,
         chain_type="map_reduce",
         map_prompt=map_prompt,
         combine_prompt=combine_prompt,
+        document_variable_name="context" # combine_prompt가 'context' 변수를 사용함을 알려줌
     )
 
     response = chain.invoke(docs)
