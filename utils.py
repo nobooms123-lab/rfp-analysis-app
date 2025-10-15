@@ -13,10 +13,9 @@ from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
-
 # 프롬프트 임포트
 from prompts import (
-    RFP_REFINEMENT_PROMPT,
+    RFP_REFINEMENT_PROMPT, # 수정된 프롬프트를 사용합니다.
     FACT_EXTRACTION_PROMPT,
     STRATEGIC_SUMMARY_PROMPT,
     KSF_PROMPT_TEMPLATE,
@@ -45,51 +44,53 @@ def process_pdf_file(uploaded_file):
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
         return None
 
-# --- [수정] 데이터 정제 함수를 가장 안정적인 초기 형태로 되돌림 ---
-@st.cache_data(show_spinner="AI가 긴 RFP 문서를 분석 및 정제 중입니다... (시간이 걸릴 수 있습니다)")
+# --- [수정] 데이터 정제 함수를 "제거(Subtractive)" 방식으로 전면 수정 ---
+@st.cache_data(show_spinner="AI가 RFP 문서를 분석하며 불필요한 정보를 제거 중입니다... (시간이 걸릴 수 있습니다)")
 def refine_rfp_text(_full_text, run_id=0):
     if not _full_text:
         return None
-    
+    # 성능과 비용 효율성을 위해 gpt-4o-mini를 사용하되, 더 높은 정확도가 필요하면 "gpt-4o"로 변경 가능
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
-
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=500)
     docs = text_splitter.create_documents([_full_text])
 
-    # Map 프롬프트
+    # Map 프롬프트: 각 텍스트 조각에서 '뻔하고 불필요한' 정보만 제거. 핵심 내용은 그대로 유지.
     map_prompt_template = """
-    당신은 RFP 문서에서 지정된 섹션을 원문 그대로 복사하는 AI입니다.
-    [지시사항]
-    아래 "대상 섹션 목록"에 있는 제목의 섹션을 발견하면, 그 섹션의 제목과 내용 전체를 단 한 글자도 빠짐없이 그대로 복사하십시오.
-    절대 요약하거나 내용을 변경하지 마십시오. 만약 대상 섹션이 없다면, 아무것도 출력하지 마십시오.
-    [대상 섹션 목록]
-    - 사업명, 사업기간, 수요기관, 추진배경 및 필요성, 주요 사업내용, 소요예산
-    - 컨설팅 요구사항, 데이터 요구사항, 보안 요구사항, 제약사항
-    - 프로젝트 관리 요구사항, 프로젝트 지원 요구사항
-    - 입찰 방식, 제안서 평가 방법, 제안서 기술평가 기준 및 배점 한도
-    --- 문서 조각 ---
+    You are an AI assistant that cleans up a chunk of an RFP document.
+    Your goal is to remove only the obviously unnecessary parts while preserving all critical project information.
+
+    [Instructions]
+    1.  **PRESERVE CORE CONTENT:** Keep all text related to project background, goals, budget, duration, technical requirements, security requirements, data requirements, project management rules, and evaluation criteria. DO NOT summarize or alter this information.
+    2.  **REMOVE GENERIC BOILERPLATE:** Delete common, non-specific text that is not unique to this project. Examples include:
+        - Standard legal disclaimers or confidentiality clauses.
+        - Generic instructions on how to format or submit a proposal (e.g., "Submit 10 copies in a binder").
+        - Repeated page headers, footers, or page numbers.
+        - Vague introductory phrases that add no value.
+    3.  **DO NOT EXTRACT, BUT CLEAN:** You are not extracting specific sections. You are cleaning the provided text chunk by removing the noise around the important content.
+
+    --- Document Chunk ---
     {text}
     ---
-    복사된 섹션 내용:
+    Cleaned text chunk with boilerplate removed:
     """
     map_prompt = PromptTemplate.from_template(map_prompt_template)
-    
-    # Reduce 프롬프트 (prompts.py에서 가져옴)
+
+    # Reduce 프롬프트 (prompts.py에서 가져옴): 1차 정제된 조각들을 합치고, 최종 중복 제거 및 구조화
     combine_prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
 
-    # 이제 prompts.py의 combine_prompt가 {text}를 사용하므로, 추가 설정 없이도 정상 작동합니다.
     chain = load_summarize_chain(
         llm,
         chain_type="map_reduce",
         map_prompt=map_prompt,
         combine_prompt=combine_prompt,
+        # verbose=True # 디버깅 시 True로 설정하여 중간 과정 확인
     )
-
-    response = chain.invoke({"input_documents": docs})
     
+    response = chain.invoke({"input_documents": docs})
     return response.get('output_text', "오류: 텍스트 정제에 실패했습니다.")
 
 
+# --- 이하 함수들은 변경할 필요가 없습니다 ---
 @st.cache_data(show_spinner="핵심 정보(예산, 기간 등)를 추출 중입니다...")
 def extract_facts(_refined_text, run_id=0):
     if not _refined_text:
@@ -127,14 +128,11 @@ def generate_strategic_report(refined_text, facts, run_id=0):
 def generate_creative_reports(refined_text, summary_report, run_id=0):
     if not refined_text or not summary_report:
         return None, None
-        
     llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
-
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
     ksf_chain = ksf_prompt | llm
     ksf_response = ksf_chain.invoke({"context": refined_text})
     ksf = ksf_response.content
-
     outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
     outline_chain = outline_prompt | llm
     outline_response = outline_chain.invoke({
@@ -143,7 +141,6 @@ def generate_creative_reports(refined_text, summary_report, run_id=0):
         "context": refined_text
     })
     presentation_outline = outline_response.content
-
     return ksf, presentation_outline
 
 def to_excel(facts, summary, ksf, outline):
@@ -153,17 +150,12 @@ def to_excel(facts, summary, ksf, outline):
             df_facts = pd.DataFrame.from_dict(facts, orient='index', columns=['내용'])
             df_facts.index.name = '항목'
             df_facts.to_excel(writer, sheet_name='프로젝트 개요')
-        
         df_summary = pd.DataFrame([summary], columns=["전략 보고서"])
         df_summary.to_excel(writer, sheet_name='전략 보고서', index=False)
-
         df_ksf = pd.DataFrame([ksf], columns=["핵심 성공 요소"])
         df_ksf.to_excel(writer, sheet_name='핵심 성공 요소', index=False)
-
         df_outline = pd.DataFrame([outline], columns=["발표자료 목차"])
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
-
     processed_data = output.getvalue()
     return processed_data
-
 
