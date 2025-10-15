@@ -1,5 +1,4 @@
 # utils.py
-# utils.py
 
 import os
 import re
@@ -13,6 +12,7 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
+# Map-Reduce를 위한 import 추가
 from langchain.chains.summarize import load_summarize_chain
 
 # 프롬프트 임포트
@@ -26,7 +26,6 @@ from prompts import (
 
 # --- 파일 처리 함수들 (변경 없음) ---
 def process_text_file(uploaded_file):
-    """업로드된 텍스트 파일(.txt)을 읽어 전체 텍스트를 반환합니다."""
     try:
         full_text = uploaded_file.getvalue().decode("utf-8")
         return full_text.strip()
@@ -35,7 +34,6 @@ def process_text_file(uploaded_file):
         return None
 
 def process_pdf_file(uploaded_file):
-    """업로드된 PDF 파일에서 텍스트를 추출합니다."""
     try:
         file_bytes = uploaded_file.getvalue()
         doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -48,28 +46,61 @@ def process_pdf_file(uploaded_file):
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
         return None
 
-# --- 데이터 정제 및 LLM 호출 함수들 ---
-@st.cache_data(show_spinner="AI가 RFP 원문에서 핵심 요구사항을 정제 중입니다...")
+# --- [수정] 데이터 정제 함수에 Map-Reduce 적용 ---
+@st.cache_data(show_spinner="AI가 긴 RFP 문서를 분석 및 정제 중입니다... (시간이 걸릴 수 있습니다)")
 def refine_rfp_text(_full_text, run_id=0):
-    """RFP 전체 텍스트를 받아 저렴한 모델로 핵심 내용만 요약/정제합니다."""
+    """
+    Map-Reduce 방식을 사용하여 아무리 긴 RFP 텍스트라도 안정적으로 정제합니다.
+    """
     if not _full_text:
         return None
     
     llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+
+    # 1. 텍스트를 작은 조각(chunk)으로 분할
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=500)
+    docs = text_splitter.create_documents([_full_text])
+
+    # 2. Map-Reduce 체인 설정
+    # Map 프롬프트: 각 조각(chunk)에 개별적으로 적용될 프롬프트
+    map_prompt_template = """
+    다음은 RFP 문서의 일부입니다. 이 텍스트에서 아래 항목에 해당하는 핵심 내용만 추출하십시오.
+    - 프로젝트 개요 및 핵심 정보 (사업명, 예산, 기간, 배경)
+    - 컨설팅 요구사항 (CSR)
+    - 제약사항 (COR)
+    - 특이하거나 중요한 프로젝트 관리/지원 요구사항 (PMR, PSR)
+    - 평가 기준
     
-    prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
-    chain = prompt | llm
+    목차, 붙임 서식, 일반 계약 조건 등 불필요한 내용은 무시하십시오.
     
-    # [수정] 모델의 토큰 제한(16k)을 넘지 않도록 글자 수를 더 안전하게 줄입니다.
-    # 30000 -> 25000
-    context = _full_text[:25000]
+    --- 텍스트 일부 ---
+    {text}
+    ---
     
-    response = chain.invoke({"context": context})
-    return response.content
+    핵심 내용 추출 결과:
+    """
+    map_prompt = PromptTemplate.from_template(map_prompt_template)
+
+    # Reduce 프롬프트: Map 단계에서 나온 모든 요약본들을 최종적으로 통합할 때 사용할 프롬프트
+    # 이 프롬프트는 우리가 원래 사용하던 상세한 프롬프트(RFP_REFINEMENT_PROMPT)를 그대로 활용합니다.
+    # 이것이 최종 결과물의 형식을 결정합니다.
+    combine_prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
+
+    # 3. Map-Reduce 체인 생성 및 실행
+    chain = load_summarize_chain(
+        llm,
+        chain_type="map_reduce",
+        map_prompt=map_prompt,
+        combine_prompt=combine_prompt,
+    )
+
+    response = chain.invoke(docs)
+    
+    return response.get('output_text', "오류: 텍스트 정제에 실패했습니다.")
+
 
 @st.cache_data(show_spinner="핵심 정보(예산, 기간 등)를 추출 중입니다...")
 def extract_facts(_refined_text, run_id=0):
-    """정제된 텍스트에서 핵심 사실 정보를 JSON으로 추출합니다."""
     if not _refined_text:
         return None
     llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
@@ -87,7 +118,6 @@ def extract_facts(_refined_text, run_id=0):
 
 @st.cache_data(show_spinner="AI 컨설턴트가 전략 보고서를 작성 중입니다...")
 def generate_strategic_report(refined_text, facts, run_id=0):
-    """정제된 텍스트를 기반으로 전략 보고서를 생성합니다."""
     if not refined_text or not facts:
         return None
     llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
@@ -104,7 +134,6 @@ def generate_strategic_report(refined_text, facts, run_id=0):
 
 @st.cache_data(show_spinner="AI 전략가가 핵심 성공 요소와 발표 목차를 구상 중입니다...")
 def generate_creative_reports(refined_text, summary_report, run_id=0):
-    """정제된 텍스트와 전략 보고서를 기반으로 KSF와 발표 목차를 생성합니다."""
     if not refined_text or not summary_report:
         return None, None
         
@@ -127,7 +156,6 @@ def generate_creative_reports(refined_text, summary_report, run_id=0):
     return ksf, presentation_outline
 
 def to_excel(facts, summary, ksf, outline):
-    """모든 결과물을 엑셀 파일로 변환합니다."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         if facts:
@@ -147,6 +175,4 @@ def to_excel(facts, summary, ksf, outline):
     processed_data = output.getvalue()
     return processed_data
 
-    processed_data = output.getvalue()
-    return processed_data
 
