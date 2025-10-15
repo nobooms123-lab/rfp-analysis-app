@@ -1,61 +1,19 @@
 # prompts.py
 
+# [수정] combine_prompt로 사용될 이 프롬프트의 변수명을 {context} -> {text}로 변경
 RFP_REFINEMENT_PROMPT = """
-You are an expert AI assistant tasked with refining a raw Request for Proposal (RFP) text into a condensed, actionable summary for a proposal team. Your goal is to eliminate noise while preserving all critical requirements.
+You are an AI assistant that combines extracted chunks from an RFP into a single, clean document for proposal experts.
+The following text contains multiple extracted pieces. Your task is to:
+1.  Collate all the pieces under logical headings (e.g., 1. 프로젝트 개요, 2. 추진 배경 및 목표, 3. 주요 사업 범위, 4. 컨설팅 요구사항, 5. 제약사항, 6. 주요 관리 조건, 7. 평가 기준).
+2.  Merge the "컨설팅 요구사항" (CSR) and "제약사항" (COR) sections. They might be split across multiple chunks, so combine them into a single, complete section. Ensure no content is lost.
+3.  Remove any duplicate information.
+4.  Format the final output in clean, readable Markdown, entirely in Korean.
 
-Follow these instructions precisely for each section:
-
-**1. Project Overview & Key Facts:**
-- Extract and summarize the core project details:
-  - `Project Name`
-  - `Project Budget`
-  - `Project Duration`
-  - `Background and Objectives` (Summarize the "why" of this project)
-
-**2. [CRITICAL] Consulting Requirements (CSR):**
-- You MUST extract the "컨설팅 요구사항" section (usually starts with CSR-001) in its entirety.
-- **DO NOT summarize or alter the content of this section.**
-- Preserve the original numbering (e.g., CSR-001, CSR-002) and detailed descriptions exactly as they appear in the source text. This section is the most important part of the RFP.
-
-**3. [CRITICAL] Constraint Requirements (COR):**
-- You MUST extract the "제약사항" section (usually starts with COR-001) in its entirety.
-- **DO NOT summarize or alter the content of this section.**
-- Preserve the original numbering and detailed descriptions.
-
-**4. Project Management (PMR) & Support (PSR) Requirements (Selective Extraction):**
-- Scan the "프로젝트 관리 요구사항" and "프로젝트 지원 요구사항" sections.
-- Extract ONLY the requirements that are **unusual, legally binding, or impose a significant constraint** on the bidding company.
-- **IGNORE generic requirements** like "submit weekly reports" or "hold regular meetings".
-- **FOCUS ON specific conditions** such as:
-  - `Personnel replacement rules` (e.g., mandatory overlap period)
-  - `Subcontracting rules and ratios`
-  - `Liability and indemnity clauses` (e.g., 손해배상 책임)
-  - `Intellectual property rights`
-  - `Specific deliverable acceptance criteria` (e.g., 검수 및 검사)
-  - `Post-project support obligations` (e.g., 후속 사업지원)
-
-**5. Evaluation Criteria:**
-- Extract and summarize the key evaluation metrics.
-  - `Evaluation method` (e.g., 기술/가격 배점)
-  - `Bidder eligibility` (e.g., restrictions on large corporations)
-
-**6. Information to EXCLUDE:**
-- **You MUST discard the following sections entirely:**
-  - Table of Contents (목차)
-  - Legal compliance checklists (법ㆍ제도 자가점검표)
-  - General contract terms and boilerplate clauses (일반현황, 제안서 작성 요령 등)
-  - All appendices and forms ([붙임] 입찰 및 제안서 관련 서식)
-  - Security pledge forms (보안 서약서, 확약서)
-
-**Final Output Format:**
-Structure your output in Markdown with clear headings for each extracted section.
-
----
-**Raw RFP Text:**
-{context}
+--- Combined Extracted Chunks ---
+{text}
 ---
 
-**Refined RFP Core Requirements:**
+Final Refined RFP Document for Proposal Experts:
 """
 
 FACT_EXTRACTION_PROMPT = """
@@ -161,6 +119,7 @@ _우리가 어떻게 핵심 성공 요소를 완벽하게 충족시키며, 앞�
 **(여기에 당신의 창의적인 '사업 추진 전략'을 구성하여 제시하세요.)**
 ---
 """
+
 
 
 
