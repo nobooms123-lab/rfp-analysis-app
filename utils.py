@@ -37,7 +37,7 @@ def process_pdf_file(uploaded_file):
         file_bytes = uploaded_file.getvalue()
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         all_text = [page.get_text() for page in doc]
-        doc.close
+        doc.close()
         full_text_raw = "\n\n".join(all_text)
         text = re.sub(r'\n\s*\n', '\n', full_text_raw)
         return text.strip()
@@ -51,49 +51,61 @@ def refine_rfp_text(_full_text, run_id=0):
     if not _full_text:
         return None
     
-    llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=500)
     docs = text_splitter.create_documents([_full_text])
 
-    # [재설계 1] Map 프롬프트: 추출할 항목을 명확하고 상세하게 지시
+    # [재설계 1] Map 프롬프트: AI를 '섹션 복사기'로 만듦
     map_prompt_template = """
-    You are an AI assistant that extracts critical information for proposal writing from a chunk of an RFP document.
+    당신은 RFP 문서에서 지정된 섹션을 원문 그대로 복사하는 AI입니다.
 
-    **Instructions:**
-    1.  Extract the following information if present:
-        - **Project Identification:** 사업명, 수요기관, 사업 예산, 사업 기간, 입찰 참가 자격
-        - **Project Background:** 추진배경 및 필요성, 사업 목표
-        - **Scope of Work:** 주요 사업 내용
-        - **Evaluation Criteria:** 평가 방식, 배점 (e.g., 기술:가격 = 90:10)
-        - **Key Constraints & Rules:** 중요한 프로젝트 관리 조건 (하도급, 인력교체 등), 지적재산권, 하자보수 등
-    
-    2.  **CRITICAL RULE:** If you find sections titled "컨설팅 요구사항" (CSR) or "제약사항" (COR), you MUST extract their ENTIRE content verbatim. DO NOT SUMMARIZE THEM.
-    
-    3.  **IGNORE:** Ignore irrelevant content like table of contents, legal boilerplate, standard contract clauses, and appendices.
+    [지시사항]
+    아래 "대상 섹션 목록"에 있는 제목의 섹션을 발견하면, 그 섹션의 **제목과 내용 전체를 단 한 글자도 빠짐없이 그대로 복사**하십시오.
+    **절대 요약하거나 내용을 변경하지 마십시오.**
+    만약 대상 섹션이 없다면, 아무것도 출력하지 마십시오.
 
-    --- Document Chunk ---
+    [대상 섹션 목록]
+    - 사업명
+    - 사업기간
+    - 수요기관
+    - 추진배경 및 필요성
+    - 주요 사업내용
+    - 소요예산
+    - 컨설팅 요구사항
+    - 데이터 요구사항
+    - 보안 요구사항
+    - 제약사항
+    - 프로젝트 관리 요구사항
+    - 프로젝트 지원 요구사항
+    - 입찰 방식
+    - 제안서 평가 방법
+    - 제안서 기술평가 기준 및 배점 한도
+
+    --- 문서 조각 ---
     {text}
     ---
 
-    Extracted Content (Preserving CSR/COR sections fully):
+    복사된 섹션 내용:
     """
     map_prompt = PromptTemplate.from_template(map_prompt_template)
     
-    # [재설계 2] Reduce 프롬프트: 정리 및 통합에만 집중
+    # [재설계 2] Reduce 프롬프트: AI를 '문서 조립기'로 만듦
     combine_prompt_template = """
-    You are an AI assistant that combines extracted chunks from an RFP into a single, clean document for proposal experts.
-    The following text contains multiple extracted pieces. Your task is to:
-    1.  Collate all the pieces under logical headings (e.g., 1. 프로젝트 개요, 2. 추진 배경 및 목표, 3. 주요 사업 범위, 4. 컨설팅 요구사항, 5. 제약사항, 6. 주요 관리 조건, 7. 평가 기준).
-    2.  Merge the "컨설팅 요구사항" (CSR) and "제약사항" (COR) sections. They might be split across multiple chunks, so combine them into a single, complete section. Ensure no content is lost.
-    3.  Remove any duplicate information.
-    4.  Format the final output in clean, readable Markdown.
+    당신은 여러 조각으로 나뉘어 추출된 RFP 섹션들을 하나의 완전한 문서로 재조립하는 AI입니다.
 
-    --- Combined Extracted Chunks ---
+    [지시사항]
+    아래 "추출된 조각 모음"에 있는 텍스트들을 사용하여, 다음 규칙에 따라 최종 문서를 만드십시오.
+    1.  각 내용을 논리적인 순서에 따라 재배열하십시오. (예: 사업 개요 -> 배경 -> 사업 내용 -> 요구사항 순)
+    2.  여러 조각으로 나뉜 동일한 섹션(예: '컨설팅 요구사항')이 있다면, 그 내용들을 모두 합쳐 하나의 완전한 섹션으로 만드십시오.
+    3.  완전히 동일하게 중복되는 문장은 제거하십시오.
+    4.  최종 결과물은 한국어로 된 명확한 제목과 함께 정리된 마크다운 형식이어야 합니다.
+
+    --- 추출된 조각 모음 ---
     {text}
     ---
     
-    Final Refined RFP Document for Proposal Experts:
+    재조립된 최종 RFP 핵심 요약본:
     """
     combine_prompt = PromptTemplate.from_template(combine_prompt_template)
 
@@ -185,6 +197,7 @@ def to_excel(facts, summary, ksf, outline):
 
     processed_data = output.getvalue()
     return processed_data
+
 
 
 
