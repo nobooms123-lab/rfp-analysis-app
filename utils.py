@@ -12,7 +12,10 @@ from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
-from langchain.chains.summarize import load_summarize_chain
+# [오류 해결을 위한 핵심 수정] 필요한 체인들을 직접 import
+from langchain.chains import LLMChain
+from langchain.chains.combine_documents.stuff import StuffDocumentsChain
+from langchain.chains.mapreduce import MapReduceDocumentsChain
 
 # 프롬프트 임포트
 from prompts import (
@@ -45,7 +48,7 @@ def process_pdf_file(uploaded_file):
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
         return None
 
-# --- 데이터 정제 및 LLM 호출 함수들 ---
+# --- [오류 해결을 위한 핵심 수정] Map-Reduce 체인을 수동으로 구성 ---
 @st.cache_data(show_spinner="AI가 긴 RFP 문서를 분석 및 정제 중입니다... (시간이 걸릴 수 있습니다)")
 def refine_rfp_text(_full_text, run_id=0):
     if not _full_text:
@@ -53,9 +56,7 @@ def refine_rfp_text(_full_text, run_id=0):
     
     llm = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=500)
-    docs = text_splitter.create_documents([_full_text])
-
+    # 1. Map 단계에 사용할 체인 (각 조각 처리용)
     map_prompt_template = """
     다음은 RFP 문서의 일부입니다. 이 텍스트에서 아래 항목에 해당하는 핵심 내용만 추출하십시오.
     - 프로젝트 개요 및 핵심 정보 (사업명, 예산, 기간, 배경)
@@ -70,18 +71,31 @@ def refine_rfp_text(_full_text, run_id=0):
     핵심 내용 추출 결과:
     """
     map_prompt = PromptTemplate.from_template(map_prompt_template)
-    combine_prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
+    map_chain = LLMChain(llm=llm, prompt=map_prompt)
 
-    # [오류 수정] Pydantic 오류 해결을 위해 document_variable_name을 명시적으로 지정
-    chain = load_summarize_chain(
-        llm,
-        chain_type="map_reduce",
-        map_prompt=map_prompt,
-        combine_prompt=combine_prompt,
-        document_variable_name="context" # combine_prompt가 'context' 변수를 사용함을 알려줌
+    # 2. Reduce 단계에 사용할 체인 (모든 조각의 결과를 합쳐 최종본 생성용)
+    combine_prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
+    reduce_chain = LLMChain(llm=llm, prompt=combine_prompt)
+
+    # 3. Map 단계의 결과물들을 하나로 묶는 체인
+    combine_documents_chain = StuffDocumentsChain(
+        llm_chain=reduce_chain,
+        document_variable_name="context" # combine_prompt의 변수 이름과 일치
     )
 
-    response = chain.invoke(docs)
+    # 4. Map-Reduce 전체를 관장하는 메인 체인
+    map_reduce_chain = MapReduceDocumentsChain(
+        llm_chain=map_chain,
+        combine_documents_chain=combine_documents_chain,
+        document_variable_name="text", # map_prompt의 변수 이름과 일치
+        return_intermediate_steps=False
+    )
+
+    # 5. 텍스트를 분할하여 체인 실행
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=500)
+    docs = text_splitter.create_documents([_full_text])
+    
+    response = map_reduce_chain.invoke(docs)
     
     return response.get('output_text', "오류: 텍스트 정제에 실패했습니다.")
 
