@@ -62,7 +62,8 @@ if uploaded_file and st.session_state.stage == 0:
 if st.session_state.stage >= 1:
     st.sidebar.header("2. AI 텍스트 정제")
     if st.sidebar.button("RFP 핵심내용 정제 실행", disabled=(st.session_state.stage > 1)):
-        refined_text = refine_rfp_text(st.session_state.raw_text, run_id=uploaded_file.name)
+        # [수정] uploaded_file.name -> st.session_state.uploaded_filename
+        refined_text = refine_rfp_text(st.session_state.raw_text, run_id=st.session_state.uploaded_filename)
         if refined_text:
             st.session_state.refined_text = refined_text
             st.session_state.stage = 2
@@ -73,7 +74,8 @@ if st.session_state.stage >= 2:
     st.sidebar.success("✓ 2. 텍스트 정제 완료")
     st.sidebar.header("3. 프로젝트 개요 추출")
     if st.sidebar.button("핵심 정보 추출 실행", disabled=(st.session_state.stage > 2)):
-        facts = extract_facts(st.session_state.refined_text, run_id=uploaded_file.name)
+        # [수정] uploaded_file.name -> st.session_state.uploaded_filename
+        facts = extract_facts(st.session_state.refined_text, run_id=st.session_state.uploaded_filename)
         if facts:
             st.session_state.facts = facts
             st.session_state.stage = 3
@@ -87,7 +89,8 @@ if st.session_state.stage >= 3:
         report = generate_strategic_report(
             st.session_state.refined_text,
             st.session_state.facts,
-            run_id=uploaded_file.name
+            # [수정] uploaded_file.name -> st.session_state.uploaded_filename
+            run_id=st.session_state.uploaded_filename
         )
         if report:
             st.session_state.report = report
@@ -102,7 +105,8 @@ if st.session_state.stage >= 4:
         ksf, outline = generate_creative_reports(
             st.session_state.refined_text,
             st.session_state.report,
-            run_id=uploaded_file.name
+            # [수정] uploaded_file.name -> st.session_state.uploaded_filename
+            run_id=st.session_state.uploaded_filename
         )
         if ksf and outline:
             st.session_state.ksf = ksf
