@@ -1,4 +1,5 @@
 # utils.py
+# utils.py
 
 import os
 import re
@@ -23,7 +24,7 @@ from prompts import (
     OUTLINE_PROMPT_TEMPLATE
 )
 
-# --- 파일 처리 함수들 ---
+# --- 파일 처리 함수들 (변경 없음) ---
 def process_text_file(uploaded_file):
     """업로드된 텍스트 파일(.txt)을 읽어 전체 텍스트를 반환합니다."""
     try:
@@ -59,9 +60,9 @@ def refine_rfp_text(_full_text, run_id=0):
     prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
     chain = prompt | llm
     
-    # [수정] 모델의 토큰 제한(16k)을 넘지 않도록 글자 수를 안전하게 줄입니다.
-    # 50000 -> 30000
-    context = _full_text[:30000]
+    # [수정] 모델의 토큰 제한(16k)을 넘지 않도록 글자 수를 더 안전하게 줄입니다.
+    # 30000 -> 25000
+    context = _full_text[:25000]
     
     response = chain.invoke({"context": context})
     return response.content
@@ -145,3 +146,7 @@ def to_excel(facts, summary, ksf, outline):
 
     processed_data = output.getvalue()
     return processed_data
+
+    processed_data = output.getvalue()
+    return processed_data
+
