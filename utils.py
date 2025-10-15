@@ -59,7 +59,9 @@ def refine_rfp_text(_full_text, run_id=0):
     prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
     chain = prompt | llm
     
-    context = _full_text[:50000]
+    # [수정] 모델의 토큰 제한(16k)을 넘지 않도록 글자 수를 안전하게 줄입니다.
+    # 50000 -> 30000
+    context = _full_text[:30000]
     
     response = chain.invoke({"context": context})
     return response.content
