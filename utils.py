@@ -37,7 +37,7 @@ def process_pdf_file(uploaded_file):
         file_bytes = uploaded_file.getvalue()
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         all_text = [page.get_text() for page in doc]
-        doc.close()
+        doc.close
         full_text_raw = "\n\n".join(all_text)
         text = re.sub(r'\n\s*\n', '\n', full_text_raw)
         return text.strip()
@@ -45,7 +45,7 @@ def process_pdf_file(uploaded_file):
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
         return None
 
-# --- [오류 해결] 데이터 정제 함수 수정 ---
+# --- [최종 수정] 데이터 정제 함수 재설계 ---
 @st.cache_data(show_spinner="AI가 긴 RFP 문서를 분석 및 정제 중입니다... (시간이 걸릴 수 있습니다)")
 def refine_rfp_text(_full_text, run_id=0):
     if not _full_text:
@@ -56,34 +56,53 @@ def refine_rfp_text(_full_text, run_id=0):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=500)
     docs = text_splitter.create_documents([_full_text])
 
+    # [재설계 1] Map 프롬프트: 추출할 항목을 명확하고 상세하게 지시
     map_prompt_template = """
-    다음은 RFP 문서의 일부입니다. 이 텍스트에서 아래 항목에 해당하는 핵심 내용만 추출하십시오.
-    - 프로젝트 개요 및 핵심 정보 (사업명, 예산, 기간, 배경)
-    - 컨설팅 요구사항 (CSR)
-    - 제약사항 (COR)
-    - 특이하거나 중요한 프로젝트 관리/지원 요구사항 (PMR, PSR)
-    - 평가 기준
-    목차, 붙임 서식, 일반 계약 조건 등 불필요한 내용은 무시하십시오.
-    --- 텍스트 일부 ---
+    You are an AI assistant that extracts critical information for proposal writing from a chunk of an RFP document.
+
+    **Instructions:**
+    1.  Extract the following information if present:
+        - **Project Identification:** 사업명, 수요기관, 사업 예산, 사업 기간, 입찰 참가 자격
+        - **Project Background:** 추진배경 및 필요성, 사업 목표
+        - **Scope of Work:** 주요 사업 내용
+        - **Evaluation Criteria:** 평가 방식, 배점 (e.g., 기술:가격 = 90:10)
+        - **Key Constraints & Rules:** 중요한 프로젝트 관리 조건 (하도급, 인력교체 등), 지적재산권, 하자보수 등
+    
+    2.  **CRITICAL RULE:** If you find sections titled "컨설팅 요구사항" (CSR) or "제약사항" (COR), you MUST extract their ENTIRE content verbatim. DO NOT SUMMARIZE THEM.
+    
+    3.  **IGNORE:** Ignore irrelevant content like table of contents, legal boilerplate, standard contract clauses, and appendices.
+
+    --- Document Chunk ---
     {text}
     ---
-    핵심 내용 추출 결과:
+
+    Extracted Content (Preserving CSR/COR sections fully):
     """
     map_prompt = PromptTemplate.from_template(map_prompt_template)
     
-    # Reduce(Combine) 단계의 프롬프트는 기존의 상세 프롬프트를 그대로 사용
-    combine_prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
+    # [재설계 2] Reduce 프롬프트: 정리 및 통합에만 집중
+    combine_prompt_template = """
+    You are an AI assistant that combines extracted chunks from an RFP into a single, clean document for proposal experts.
+    The following text contains multiple extracted pieces. Your task is to:
+    1.  Collate all the pieces under logical headings (e.g., 1. 프로젝트 개요, 2. 추진 배경 및 목표, 3. 주요 사업 범위, 4. 컨설팅 요구사항, 5. 제약사항, 6. 주요 관리 조건, 7. 평가 기준).
+    2.  Merge the "컨설팅 요구사항" (CSR) and "제약사항" (COR) sections. They might be split across multiple chunks, so combine them into a single, complete section. Ensure no content is lost.
+    3.  Remove any duplicate information.
+    4.  Format the final output in clean, readable Markdown.
 
-    # [오류 해결] Pydantic 오류 해결을 위해 정확한 매개변수 이름 사용
-    # document_variable_name -> combine_document_variable_name
+    --- Combined Extracted Chunks ---
+    {text}
+    ---
+    
+    Final Refined RFP Document for Proposal Experts:
+    """
+    combine_prompt = PromptTemplate.from_template(combine_prompt_template)
+
     chain = load_summarize_chain(
         llm,
         chain_type="map_reduce",
         map_prompt=map_prompt,
         combine_prompt=combine_prompt,
-        # 이 매개변수는 Reduce(Combine) 단계에서 사용할 문서 변수 이름을 지정합니다.
-        # combine_prompt가 '{context}'를 사용하므로 'context'로 설정합니다.
-        combine_document_variable_name="context" 
+        document_variable_name="text"
     )
 
     response = chain.invoke({"input_documents": docs})
