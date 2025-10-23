@@ -1,4 +1,4 @@
-# main.py
+# main.py (변경 없음)
 
 import streamlit as st
 import json
@@ -21,7 +21,6 @@ if 'stage' not in st.session_state:
 
 # --- 2. 사이드바 구성 ---
 st.sidebar.title("분석 프로세스")
-
 # [기능 추가] 시작점 선택 UI
 start_point = st.sidebar.radio(
     "분석 시작점을 선택하세요:",
@@ -30,7 +29,6 @@ start_point = st.sidebar.radio(
 )
 
 # --- 3. 단계별 실행 로직 ---
-
 # 워크플로우 1: RFP 원본 파일로 시작
 if start_point == "RFP 원본 파일로 시작":
     st.sidebar.header("1. 원본 파일 업로드")
@@ -53,7 +51,6 @@ if start_point == "RFP 원본 파일로 시작":
                 full_text = process_pdf_file(uploaded_file)
             else:
                 full_text = process_text_file(uploaded_file)
-        
         if full_text:
             st.session_state.raw_text = full_text
             st.session_state.stage = 1
@@ -80,11 +77,11 @@ else:
                 st.rerun()
 
 # --- 공통 실행 단계 (버튼 기반) ---
-
 # 단계 2: AI 텍스트 정제 (원본 파일로 시작했을 때만 보임)
 if st.session_state.stage == 1:
     st.sidebar.header("2. AI 텍스트 정제")
     if st.sidebar.button("RFP 핵심내용 정제 실행"):
+        # utils.py의 함수를 그대로 호출
         refined_text = refine_rfp_text(st.session_state.raw_text, run_id=st.session_state.uploaded_filename)
         if refined_text:
             st.session_state.refined_text = refined_text
@@ -159,9 +156,8 @@ with tabs[2]:
     if 'presentation_outline' in st.session_state: st.markdown(st.session_state.presentation_outline)
     else: st.info("사이드바의 '5. KSF 및 목차 생성'을 실행해주세요.")
 with tabs[3]:
-    if 'refined_text' in st.session_state: 
+    if 'refined_text' in st.session_state:
         st.text_area("AI가 핵심만 추출한 텍스트", st.session_state.refined_text, height=400)
-        # [기능 추가] 정제된 텍스트 다운로드 버튼
         st.download_button(
             label="📥 정제된 텍스트 다운로드 (.txt)",
             data=st.session_state.refined_text.encode('utf-8'),
