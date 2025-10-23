@@ -1,4 +1,4 @@
-# utils.py
+# utils.py (최종 수정본)
 
 import os
 import re
@@ -7,15 +7,19 @@ import pandas as pd
 import io
 import streamlit as st
 import fitz  # PyMuPDF
+
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_community.vectorstores import FAISS
+from langchain_openai import ChatOpenAI # 다른 함수에서 사용하므로 유지
 from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
-# 프롬프트 임포트
+
+# [수정] Gemini 모델 사용을 위한 라이브러리 import
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+# 프롬프트 임포트 (prompts.py가 수정되었다고 가정)
 from prompts import (
-    RFP_REFINEMENT_PROMPT, # 수정된 프롬프트를 사용합니다.
+    RFP_REFINEMENT_PROMPT,
     FACT_EXTRACTION_PROMPT,
     STRATEGIC_SUMMARY_PROMPT,
     KSF_PROMPT_TEMPLATE,
@@ -44,14 +48,25 @@ def process_pdf_file(uploaded_file):
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
         return None
 
-# --- [수정] 데이터 정제 함수를 "제거(Subtractive)" 방식으로 전면 수정 ---
+# --- [수정] 데이터 정제 함수를 "제거(Subtractive)" 방식 + Gemini 모델로 전면 수정 ---
 @st.cache_data(show_spinner="AI가 RFP 문서를 분석하며 불필요한 정보를 제거 중입니다... (시간이 걸릴 수 있습니다)")
 def refine_rfp_text(_full_text, run_id=0):
     if not _full_text:
         return None
-    # 성능과 비용 효율성을 위해 gpt-4o-mini를 사용하되, 더 높은 정확도가 필요하면 "gpt-4o"로 변경 가능
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=500)
+
+    # [수정] 속도와 성능을 위해 OpenAI 모델 대신 Google Gemini Flash 모델 사용
+    try:
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash-latest",
+            temperature=0,
+            google_api_key=st.secrets["GOOGLE_API_KEY"] # secrets.toml에서 키를 읽어옵니다.
+        )
+    except Exception as e:
+        st.error(f"Gemini 모델 초기화 중 오류 발생: {e}. secrets.toml에 GOOGLE_API_KEY가 올바르게 설정되었는지 확인하세요.")
+        return None
+
+    # [수정] API 호출 횟수를 줄여 속도를 높이기 위해 chunk_size를 대폭 증가
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=30000, chunk_overlap=1000)
     docs = text_splitter.create_documents([_full_text])
 
     # Map 프롬프트: 각 텍스트 조각에서 '뻔하고 불필요한' 정보만 제거. 핵심 내용은 그대로 유지.
@@ -83,14 +98,13 @@ def refine_rfp_text(_full_text, run_id=0):
         chain_type="map_reduce",
         map_prompt=map_prompt,
         combine_prompt=combine_prompt,
-        # verbose=True # 디버깅 시 True로 설정하여 중간 과정 확인
     )
-    
+
     response = chain.invoke({"input_documents": docs})
     return response.get('output_text', "오류: 텍스트 정제에 실패했습니다.")
 
 
-# --- 이하 함수들은 변경할 필요가 없습니다 ---
+# --- 이하 함수들은 품질 유지를 위해 기존 모델(GPT)을 그대로 사용 (변경 없음) ---
 @st.cache_data(show_spinner="핵심 정보(예산, 기간 등)를 추출 중입니다...")
 def extract_facts(_refined_text, run_id=0):
     if not _refined_text:
@@ -98,9 +112,10 @@ def extract_facts(_refined_text, run_id=0):
     llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     prompt = PromptTemplate.from_template(FACT_EXTRACTION_PROMPT)
     chain = prompt | llm
-    context = _refined_text[:8000]
+    context = _refined_text[:8000] # 간단한 추출 작업이므로 전체 텍스트 불필요
     response = chain.invoke({"context": context})
     try:
+        # LLM이 JSON 코드 블록(```json ... ```)을 반환하는 경우도 처리
         cleaned_content = re.search(r'\{.*\}', response.content, re.DOTALL).group(0)
         facts = json.loads(cleaned_content)
         return facts
@@ -112,6 +127,7 @@ def extract_facts(_refined_text, run_id=0):
 def generate_strategic_report(refined_text, facts, run_id=0):
     if not refined_text or not facts:
         return None
+    # [설명] 이 단계는 높은 품질의 분석이 중요하므로 gpt-4o를 유지합니다.
     llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     prompt = PromptTemplate.from_template(STRATEGIC_SUMMARY_PROMPT)
     chain = prompt | llm
@@ -128,11 +144,13 @@ def generate_strategic_report(refined_text, facts, run_id=0):
 def generate_creative_reports(refined_text, summary_report, run_id=0):
     if not refined_text or not summary_report:
         return None, None
+    # [설명] 창의적인 결과물이 중요하므로 gpt-4o를 유지합니다.
     llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
     ksf_chain = ksf_prompt | llm
     ksf_response = ksf_chain.invoke({"context": refined_text})
     ksf = ksf_response.content
+
     outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
     outline_chain = outline_prompt | llm
     outline_response = outline_chain.invoke({
@@ -158,4 +176,5 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
 
