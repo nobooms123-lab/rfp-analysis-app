@@ -14,7 +14,7 @@ from langchain_openai import ChatOpenAI # 다른 함수에서 사용하므로 �
 from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
 
-# [수정] Gemini 모델 사용을 위한 라이브러리 import
+# Gemini 모델 사용을 위한 라이브러리 import
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # 프롬프트 임포트 (prompts.py가 수정되었다고 가정)
@@ -48,32 +48,33 @@ def process_pdf_file(uploaded_file):
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
         return None
 
-# --- [수정] 데이터 정제 함수를 "제거(Subtractive)" 방식 + Gemini 모델로 전면 수정 ---
+# --- 데이터 정제 함수 (Gemini 모델 + NotFound 오류 해결 코드 적용) ---
 @st.cache_data(show_spinner="AI가 RFP 문서를 분석하며 불필요한 정보를 제거 중입니다... (시간이 걸릴 수 있습니다)")
 def refine_rfp_text(_full_text, run_id=0):
     if not _full_text:
         return None
 
-    # [수정] 속도와 성능을 위해 OpenAI 모델 대신 Google Gemini Flash 모델 사용
     try:
+        # [수정] NotFound 오류 해결을 위해 API 엔드포인트를 명시적으로 지정
         llm = ChatGoogleGenerativeAI(
             model="gemini-1.5-flash-latest",
             temperature=0,
-            google_api_key=st.secrets["GOOGLE_API_KEY"] # secrets.toml에서 키를 읽어옵니다.
+            google_api_key=st.secrets["GOOGLE_API_KEY"],
+            transport="rest",  # 웹 환경 호환성을 위해 REST API 사용
+            client_options={"api_endpoint": "us-central1-aiplatform.googleapis.com"}
         )
     except Exception as e:
         st.error(f"Gemini 모델 초기화 중 오류 발생: {e}. secrets.toml에 GOOGLE_API_KEY가 올바르게 설정되었는지 확인하세요.")
         return None
 
-    # [수정] API 호출 횟수를 줄여 속도를 높이기 위해 chunk_size를 대폭 증가
+    # API 호출 횟수를 줄여 속도를 높이기 위해 chunk_size를 대폭 증가
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=30000, chunk_overlap=1000)
     docs = text_splitter.create_documents([_full_text])
 
-    # Map 프롬프트: 각 텍스트 조각에서 '뻔하고 불필요한' 정보만 제거. 핵심 내용은 그대로 유지.
+    # Map 프롬프트: 각 텍스트 조각에서 '뻔하고 불필요한' 정보만 제거
     map_prompt_template = """
     You are an AI assistant that cleans up a chunk of an RFP document.
     Your goal is to remove only the obviously unnecessary parts while preserving all critical project information.
-
     [Instructions]
     1.  **PRESERVE CORE CONTENT:** Keep all text related to project background, goals, budget, duration, technical requirements, security requirements, data requirements, project management rules, and evaluation criteria. DO NOT summarize or alter this information.
     2.  **REMOVE GENERIC BOILERPLATE:** Delete common, non-specific text that is not unique to this project. Examples include:
@@ -82,7 +83,6 @@ def refine_rfp_text(_full_text, run_id=0):
         - Repeated page headers, footers, or page numbers.
         - Vague introductory phrases that add no value.
     3.  **DO NOT EXTRACT, BUT CLEAN:** You are not extracting specific sections. You are cleaning the provided text chunk by removing the noise around the important content.
-
     --- Document Chunk ---
     {text}
     ---
@@ -127,7 +127,7 @@ def extract_facts(_refined_text, run_id=0):
 def generate_strategic_report(refined_text, facts, run_id=0):
     if not refined_text or not facts:
         return None
-    # [설명] 이 단계는 높은 품질의 분석이 중요하므로 gpt-4o를 유지합니다.
+    # 이 단계는 높은 품질의 분석이 중요하므로 gpt-4o를 유지합니다.
     llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     prompt = PromptTemplate.from_template(STRATEGIC_SUMMARY_PROMPT)
     chain = prompt | llm
@@ -144,7 +144,7 @@ def generate_strategic_report(refined_text, facts, run_id=0):
 def generate_creative_reports(refined_text, summary_report, run_id=0):
     if not refined_text or not summary_report:
         return None, None
-    # [설명] 창의적인 결과물이 중요하므로 gpt-4o를 유지합니다.
+    # 창의적인 결과물이 중요하므로 gpt-4o를 유지합니다.
     llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=st.secrets["OPENAI_GPT_API_KEY"])
     ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
     ksf_chain = ksf_prompt | llm
@@ -176,5 +176,6 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
 
 
