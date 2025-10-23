@@ -13,6 +13,7 @@ from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI # 다른 함수에서 사용하므로 유지
 from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
+from langchain_google_vertexai import ChatVertexAI
 
 # Gemini 모델 사용을 위한 라이브러리 import
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -58,10 +59,11 @@ def refine_rfp_text(_full_text, run_id=0):
         # [수정] 복잡한 엔드포인트 지정을 모두 제거하고 가장 기본적인 형태로 되돌립니다.
         # 이렇게 하면 라이브러리가 기본적으로 'Generative Language API'를 사용하게 되어,
         # 사용자가 활성화한 API와 일치하게 됩니다.
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash-latest",
+        llm = ChatVertexAI(
+            project=st.secrets["GOOGLE_PROJECT_ID"],
+            model_name="gemini-1.5-flash-001",
             temperature=0,
-            google_api_key=st.secrets["GOOGLE_API_KEY"]
+            location="us-central1"
         )
     except Exception as e:
         st.error(f"Gemini 모델 초기화 중 오류 발생: {e}. secrets.toml에 GOOGLE_API_KEY가 올바르게 설정되었는지 확인하세요.")
@@ -173,6 +175,7 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
 
 
 
