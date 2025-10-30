@@ -1,4 +1,4 @@
-# utils.py (Gemini 1.5 Flash 통합 버전)
+# utils.py (Gemini 1.5 Flash 통합 및 인증 강화 버전)
 
 import os
 import re
@@ -8,12 +8,14 @@ import io
 import streamlit as st
 import fitz  # PyMuPDF
 
-from google.oauth2 import service_account 
+# langchain_openai 관련 임포트는 모두 제거됨 (Gemini 단독 사용)
+
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
 from langchain_google_vertexai import ChatVertexAI
+from google.oauth2 import service_account 
 
 # 프롬프트 임포트
 from prompts import (
@@ -33,9 +35,15 @@ def init_gemini_llm(temperature: float):
             st.error("Streamlit Secret에 GOOGLE_PROJECT_ID 또는 GOOGLE_CREDENTIALS_JSON이 설정되지 않았습니다.")
             return None
         
+        # 환경 변수 충돌 방지: Google의 기본 인증 시도를 막습니다. (TransportError 해결)
+        if 'GOOGLE_APPLICATION_CREDENTIALS' in os.environ:
+            del os.environ['GOOGLE_APPLICATION_CREDENTIALS']
+            
+        # 1. Secret에서 JSON 문자열을 읽고 인증 정보 객체 생성
         credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
         credentials = service_account.Credentials.from_service_account_info(credentials_info)
 
+        # 2. Vertex AI LLM 초기화 시 인증 정보를 명시적으로 전달합니다.
         llm = ChatVertexAI(
             project=st.secrets["GOOGLE_PROJECT_ID"],
             model_name="gemini-1.5-flash-001",
@@ -118,7 +126,7 @@ def extract_facts(_refined_text, run_id=0):
 
     prompt = PromptTemplate.from_template(FACT_EXTRACTION_PROMPT)
     chain = prompt | llm
-    context = _refined_text[:12000] # Gemini는 GPT보다 더 긴 컨텍스트를 허용합니다.
+    context = _refined_text[:12000] 
     response = chain.invoke({"context": context})
     
     try:
@@ -192,3 +200,4 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
