@@ -1,9 +1,9 @@
 # requirements.txt (이 내용으로 완전히 덮어쓰세요)
 
-streamlit
-pandas
-openpyxl
-PyMuPDF
+streamlit==1.27.0
+pandas==2.1.0
+openpyxl==3.1.3
+PyMuPDF==1.22.5
+openai==1.33.0
 langchain==0.2.5
-langchain-openai==0.1.7
-
+langchain_community==0.0.175
