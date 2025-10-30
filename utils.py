@@ -27,53 +27,25 @@ from prompts import (
 
 # --- Vertex AI LLM 초기화 헬퍼 함수 ---
 @st.cache_resource
-def init_gemini_llm(temperature: float):
-    """Gemini LLM 인스턴스를 초기화하고 캐시합니다."""
+def init_openai_llm(temperature: float):
+    """OpenAI GPT 모델 초기화"""
     try:
-        if "GOOGLE_CREDENTIALS_JSON" not in st.secrets or "GOOGLE_PROJECT_ID" not in st.secrets:
-            st.error("Streamlit Secret에 GOOGLE_PROJECT_ID 또는 GOOGLE_CREDENTIALS_JSON이 설정되지 않았습니다.")
+        if "OPENAI_API_KEY" not in st.secrets:
+            st.error("Streamlit Secrets에 OPENAI_API_KEY가 설정되지 않았습니다.")
             return None
-        
-        # 1. 환경 변수 충돌 방지 및 메타데이터 서버 접근 차단 (최종 방어)
-        for env_var in [
-            'GOOGLE_APPLICATION_CREDENTIALS', 
-            'GCLOUD_PROJECT', 
-            'GOOGLE_CLOUD_QUOTA_PROJECT',
-            'GCP_PROJECT'
-        ]:
-            if env_var in os.environ:
-                del os.environ[env_var] 
-                
-        # TransportError 유발하는 메타데이터 접근을 무효화
-        os.environ['GCP_METADATA_HOST'] = 'invalid-host'
 
-        # 2. Secret에서 JSON 문자열을 읽고 인증 정보 객체 생성 준비
-        json_string = st.secrets["GOOGLE_CREDENTIALS_JSON"]
-        
-        # [핵심 수정] Invalid control character 오류 해결: 문자열 정제
-        # .strip()을 사용하여 시작/끝 부분의 불필요한 공백이나 줄바꿈을 제거합니다.
-        cleaned_json_string = json_string.strip()
+        # 환경변수로 등록
+        os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 
-        credentials_info = json.loads(cleaned_json_string) 
-        
-        # 3. [Setter 오류 해결] JSON 데이터에 universe_domain을 직접 추가
-        if "universe_domain" not in credentials_info:
-            credentials_info["universe_domain"] = 'googleapis.com'
-
-        credentials = service_account.Credentials.from_service_account_info(credentials_info)
-
-        # 4. Vertex AI LLM 초기화 시 인증 정보를 명시적으로 전달합니다.
-        llm = ChatVertexAI(
-            project=st.secrets["GOOGLE_PROJECT_ID"],
-            model_name="gemini-1.5-flash-001",
+        # GPT-4o-mini 또는 GPT-4-turbo 등 선택 가능
+        llm = ChatOpenAI(
+            model="gpt-4o-mini",
             temperature=temperature,
-            location="us-central1",
-            credentials=credentials
         )
         return llm
+
     except Exception as e:
-        # 오류 메시지를 사용자에게 더 자세하게 보여줍니다.
-        st.error(f"Vertex AI 모델 초기화 중 오류 발생: {e}. Secrets 설정을 확인하세요.")
+        st.error(f"OpenAI 모델 초기화 중 오류 발생: {e}")
         return None
 
 # --- 파일 처리 함수들 (이하 동일) ---
@@ -220,5 +192,6 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
 
 
