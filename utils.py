@@ -4,94 +4,96 @@ import os
 import re
 import streamlit as st
 import fitz
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-import tiktoken
-# 새로 추가/수정된 프롬프트를 import 합니다.
-from prompts import RFP_REORGANIZATION_PROMPT, CONTEXT_AWARE_REORGANIZE_PROMPT, CHUNK_SUMMARY_PROMPT
+from langchain_core.documents import Document
+from langchain_community.vectorstores import FAISS
+from prompts import RISK_ANALYSIS_PROMPT, KSF_ANALYSIS_PROMPT, PRESENTATION_OUTLINE_PROMPT
 
 API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 if not API_KEY:
     st.error("OpenAI API 키가 설정되지 않았습니다. st.secrets 또는 환경변수를 확인해주세요.")
 
-# PDF 텍스트 추출 함수 (기존과 동일)
-@st.cache_data(show_spinner="PDF에서 텍스트를 추출 중입니다...")
-def extract_text_from_pdf(_uploaded_file):
-    # ... (이전과 동일한 코드) ...
+# 텍스트 추출 함수 (이전과 동일)
+def extract_text_from_file(uploaded_file):
+    # ... (이전 RAG 버전의 코드와 동일) ...
+    if uploaded_file.type == "application/pdf":
+        try:
+            file_bytes = uploaded_file.getvalue()
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            full_text = ""
+            for page in doc:
+                blocks = page.get_text("blocks", sort=True)
+                blocks.sort(key=lambda b: (b[1], b[0]))
+                full_text += "\n".join([b[4] for b in blocks if b[4].strip()]) + "\n\n"
+            doc.close()
+            return re.sub(r'\n\s*\n', '\n\n', full_text).strip()
+        except Exception as e:
+            st.error(f"PDF 텍스트 추출 중 오류: {e}")
+            return None
+    elif uploaded_file.type == "text/plain":
+        return uploaded_file.getvalue().decode("utf-8")
+    return None
+
+# 벡터 DB 생성 함수 (이전과 동일)
+@st.cache_resource(show_spinner="문서를 분석하여 AI가 이해할 수 있도록 준비 중입니다...")
+def create_vector_db(text):
+    # ... (이전 RAG 버전의 코드와 동일) ...
+    if not text: return None
     try:
-        file_bytes = _uploaded_file.getvalue()
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        all_text_parts = []
-        for page in doc:
-            blocks = page.get_text("blocks", sort=True)
-            blocks.sort(key=lambda b: (b[1], b[0]))
-            page_text = "\n".join([b[4] for b in blocks if b[4].strip()])
-            all_text_parts.append(page_text)
-        doc.close()
-        full_text_raw = "\n\n".join(all_text_parts)
-        text = re.sub(r'\n\s*\n', '\n\n', full_text_raw)
-        return text.strip()
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
+        chunks = text_splitter.split_text(text)
+        doc_chunks = [Document(page_content=t) for t in chunks]
+        embeddings = OpenAIEmbeddings(api_key=API_KEY)
+        vector_db = FAISS.from_documents(doc_chunks, embeddings)
+        return vector_db
     except Exception as e:
-        st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
+        st.error(f"벡터 DB 생성 중 오류: {e}")
         return None
 
-# [신규/핵심] RFP 텍스트를 재구성하는 함수
-@st.cache_data(show_spinner="AI가 RFP 문서를 주제별로 재구성하고 있습니다...")
-def reorganize_rfp_text(raw_text, tpm_limit=28000):
-    if not API_KEY or not raw_text:
-        return None
+# 범용 분석 함수
+def run_analysis(vector_db, prompt_template, search_query, search_k=10):
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=API_KEY)
+    prompt = PromptTemplate.from_template(prompt_template)
+    chain = prompt | llm
+    
+    retriever = vector_db.as_retriever(search_kwargs={'k': search_k})
+    relevant_docs = retriever.get_relevant_documents(search_query)
+    context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
+    
+    response = chain.invoke({"context": context})
+    return response.content
 
-    try:
-        encoding = tiktoken.encoding_for_model("gpt-4o")
-        total_tokens = len(encoding.encode(raw_text))
+# 3가지 분석을 순차적으로 실행하는 메인 함수
+def generate_all_reports(vector_db):
+    if not vector_db:
+        return None, None, None
+    
+    # 각 분석에 사용할 검색어와 프롬프트를 정의
+    # 검색어는 각 분석의 목적에 맞게 관련 정보를 잘 찾을 수 있도록 설정
+    with st.spinner("1/3. 제안사 관점의 리스크를 분석 중입니다..."):
+        risk_report = run_analysis(
+            vector_db,
+            RISK_ANALYSIS_PROMPT,
+            "사업 수행의 위험 요소, 계약 조건, 제약 사항, 과업 범위, 책임 및 의무"
+        )
+
+    with st.spinner("2/3. 핵심 성공 요소를 도출 중입니다..."):
+        ksf_report = run_analysis(
+            vector_db,
+            KSF_ANALYSIS_PROMPT,
+            "사업 목표, 추진 배경, 평가 기준, 핵심 요구사항, 기대 효과"
+        )
+
+    with st.spinner("3/3. 발표자료 목차 초안을 작성 중입니다..."):
+        outline_report = run_analysis(
+            vector_db,
+            PRESENTATION_OUTLINE_PROMPT,
+            "사업의 이해, 사업 추진 전략, 사업 범위, 목표, 요구사항, 제안 요청 내용",
+            search_k=15 # 목차는 더 넓은 범위의 정보가 필요하므로 k값을 늘림
+        )
         
-        llm = ChatOpenAI(model="gpt-4o", temperature=0.0, openai_api_key=API_KEY)
-
-        # CASE 1: 텍스트가 짧아 한 번에 처리 가능한 경우 (최고 품질)
-        if total_tokens <= tpm_limit:
-            st.info("문서 전체를 한 번에 분석하여 최상의 품질로 재구성합니다.")
-            prompt = PromptTemplate.from_template(RFP_REORGANIZATION_PROMPT)
-            chain = prompt | llm
-            response = chain.invoke({"raw_text": raw_text})
-            return response.content
-
-        # CASE 2: 텍스트가 길어 분할 처리가 필요한 경우 (슬라이딩 윈도우)
-        else:
-            st.warning(f"문서가 길어({total_tokens} 토큰) 분할하여 처리합니다. 품질 유지를 위해 문맥 인식 방식을 사용합니다.")
-            
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=8000, chunk_overlap=400)
-            chunks = text_splitter.split_text(raw_text)
-            
-            summary_prompt = PromptTemplate.from_template(CHUNK_SUMMARY_PROMPT)
-            reorganize_prompt = PromptTemplate.from_template(CONTEXT_AWARE_REORGANIZE_PROMPT)
-            summary_chain = summary_prompt | llm
-            reorganize_chain = reorganize_prompt | llm
-
-            # 1. 사전 요약
-            summaries = [summary_chain.invoke({"chunk_text": chunk}).content for chunk in chunks]
-            
-            # 2. 문맥 기반 재구성
-            reorganized_chunks = []
-            progress_bar = st.progress(0, text="문서를 재구성하는 중...")
-            for i, chunk in enumerate(chunks):
-                previous_context = summaries[i-1] if i > 0 else "이전 내용 없음"
-                next_context = summaries[i+1] if i < len(chunks) - 1 else "다음 내용 없음"
-                
-                response = reorganize_chain.invoke({
-                    "previous_context": previous_context,
-                    "next_context": next_context,
-                    "current_chunk": chunk
-                })
-                reorganized_chunks.append(response.content)
-                progress_bar.progress((i + 1) / len(chunks), text=f"문서 재구성 중... ({i+1}/{len(chunks)})")
-            
-            progress_bar.empty()
-            return "\n\n".join(reorganized_chunks)
-
-    except Exception as e:
-        st.error(f"텍스트 재구성 중 오류 발생: {e}")
-        return None
-
+    return risk_report, ksf_report, outline_report
 
 
