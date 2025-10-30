@@ -6,9 +6,8 @@ import streamlit as st
 import fitz
 from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-# 새로 추가된 프롬프트를 import 합니다.
-from prompts import CHUNK_SUMMARY_PROMPT, CONTEXT_AWARE_REFINE_PROMPT
+from prompts import RFP_REFINEMENT_PROMPT
+import tiktoken # tiktoken 라이브러리 import
 
 API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 if not API_KEY:
@@ -35,56 +34,41 @@ def extract_text_from_pdf(_uploaded_file):
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
         return None
 
-# [대폭 수정] 문맥 인식 슬라이딩 윈도우 방식의 정제 함수
-@st.cache_data(show_spinner="AI가 RFP 문맥을 분석하며 정제 중입니다... (시간이 더 걸립니다)")
-def refine_rfp_text(raw_text):
+# [수정됨] 토큰 수를 제한하여 텍스트를 정제하는 함수
+@st.cache_data(show_spinner="AI가 RFP 텍스트를 정제 중입니다...")
+def refine_rfp_text(raw_text, max_tokens=28000): # 최대 토큰 수를 인자로 받음 (기본값 28,000)
     if not API_KEY or not raw_text:
         return None
     
     try:
-        # 텍스트 분할기 설정
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=8000, chunk_overlap=400)
-        chunks = text_splitter.split_text(raw_text)
+        # gpt-4o 모델에 대한 인코더를 가져옵니다.
+        encoding = tiktoken.encoding_for_model("gpt-4o")
         
-        st.info(f"문서가 길어 {len(chunks)}개 조각으로 나누어, 문맥을 고려하며 정제합니다.")
+        # 원본 텍스트의 토큰 수를 계산합니다.
+        tokens = encoding.encode(raw_text)
         
-        llm_summary = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=API_KEY)
-        llm_refine = ChatOpenAI(model="gpt-4o", temperature=0.1, openai_api_key=API_KEY)
+        processed_text = raw_text
         
-        summary_prompt = PromptTemplate.from_template(CHUNK_SUMMARY_PROMPT)
-        refine_prompt = PromptTemplate.from_template(CONTEXT_AWARE_REFINE_PROMPT)
-
-        summary_chain = summary_prompt | llm_summary
-        refine_chain = refine_prompt | llm_refine
-
-        # --- 1. 사전 요약 단계 ---
-        summaries = []
-        progress_bar = st.progress(0, text="1/2 단계: 각 부분의 사전 요약 생성 중...")
-        for i, chunk in enumerate(chunks):
-            summary = summary_chain.invoke({"chunk_text": chunk}).content
-            summaries.append(summary)
-            progress_bar.progress((i + 1) / len(chunks), text=f"1/2 단계: 사전 요약 생성 중... ({i+1}/{len(chunks)})")
-        
-        # --- 2. 문맥 기반 정제 단계 ---
-        refined_chunks = []
-        progress_bar.progress(0, text="2/2 단계: 문맥을 기반으로 본문 정제 중...")
-        for i, chunk in enumerate(chunks):
-            previous_context = summaries[i-1] if i > 0 else "이전 내용 없음"
-            next_context = summaries[i+1] if i < len(chunks) - 1 else "다음 내용 없음"
+        # 만약 토큰 수가 제한을 초과하면
+        if len(tokens) > max_tokens:
+            # max_tokens 만큼 토큰을 잘라냅니다.
+            truncated_tokens = tokens[:max_tokens]
+            # 잘라낸 토큰을 다시 텍스트로 디코딩합니다.
+            processed_text = encoding.decode(truncated_tokens)
             
-            response = refine_chain.invoke({
-                "previous_context": previous_context,
-                "next_context": next_context,
-                "current_chunk": chunk
-            })
-            refined_chunks.append(response.content)
-            progress_bar.progress((i + 1) / len(chunks), text=f"2/2 단계: 본문 정제 중... ({i+1}/{len(chunks)})")
+            # 사용자에게 정보가 잘렸음을 알립니다.
+            st.warning(f"입력 텍스트가 너무 깁니다 (총 {len(tokens)} 토큰). "
+                       f"비용 관리를 위해 앞부분 {max_tokens} 토큰만 사용하여 정제를 진행합니다. "
+                       "문서 뒷부분의 중요 정보가 누락될 수 있습니다.")
+
+        # (이후 로직은 단순 정제 방식과 동일)
+        llm = ChatOpenAI(model="gpt-4o", temperature=0.1, openai_api_key=API_KEY)
+        prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
+        chain = prompt | llm
+        response = chain.invoke({"raw_text": processed_text})
         
-        progress_bar.empty()
-
-        # --- 3. 최종 결합 ---
-        return "\n\n".join(refined_chunks)
-
+        return response.content
+        
     except Exception as e:
         st.error(f"텍스트 정제 중 오류 발생: {e}")
         return None
