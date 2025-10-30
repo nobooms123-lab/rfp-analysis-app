@@ -2,11 +2,14 @@
 
 import os
 import re
-import json
+import json # [수정] json 라이브러리 임포트
 import pandas as pd
 import io
 import streamlit as st
 import fitz  # PyMuPDF
+
+# [수정] google.oauth2.service_account 임포트
+from google.oauth2 import service_account
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -55,15 +58,27 @@ def refine_rfp_text(_full_text, run_id=0):
         return None
 
     try:
-        # [핵심 수정] ChatGoogleGenerativeAI 대신 ChatVertexAI를 사용합니다.
+        # [핵심 수정] Streamlit Secrets에서 서비스 계정 JSON을 읽어옵니다.
+        if "GOOGLE_CREDENTIALS_JSON" not in st.secrets:
+            st.error("Streamlit Secret에 'GOOGLE_CREDENTIALS_JSON'이 설정되지 않았습니다.")
+            return None
+        
+        # 1. Secret에서 JSON 문자열을 읽어 딕셔너리로 변환
+        credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
+        
+        # 2. 딕셔너리를 사용해 인증 정보 객체 생성
+        credentials = service_account.Credentials.from_service_account_info(credentials_info)
+
+        # [핵심 수정] ChatVertexAI를 초기화할 때 인증 정보를 명시적으로 전달
         llm = ChatVertexAI(
             project=st.secrets["GOOGLE_PROJECT_ID"], # secrets에서 프로젝트 ID를 읽어옵니다.
             model_name="gemini-1.5-flash-001",
             temperature=0,
-            location="us-central1" # Vertex AI는 리전 지정이 필수입니다.
+            location="us-central1", # Vertex AI는 리전 지정이 필수입니다.
+            credentials=credentials # [수정] 인증 정보를 명시적으로 전달합니다.
         )
     except Exception as e:
-        st.error(f"Vertex AI 모델 초기화 중 오류 발생: {e}. secrets에 GOOGLE_PROJECT_ID가 올바르게 설정되었는지 확인하세요.")
+        st.error(f"Vertex AI 모델 초기화 중 오류 발생: {e}. secrets에 GOOGLE_PROJECT_ID와 GOOGLE_CREDENTIALS_JSON이 올바르게 설정되었는지 확인하세요.")
         return None
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=30000, chunk_overlap=1000)
@@ -89,7 +104,7 @@ def refine_rfp_text(_full_text, run_id=0):
     return response.get('output_text', "오류: 텍스트 정제에 실패했습니다.")
 
 
-# --- 이하 함수들은 변경 없음 ---
+# --- 이하 함수들은 변경 없음 (그대로 두셔도 됩니다) ---
 @st.cache_data(show_spinner="핵심 정보(예산, 기간 등)를 추출 중입니다...")
 def extract_facts(_refined_text, run_id=0):
     if not _refined_text:
@@ -153,8 +168,6 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
-
-
 
 
 
