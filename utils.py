@@ -1,4 +1,4 @@
-# utils.py (Gemini 1.5 Flash 통합 및 인증 최종 강화 버전)
+# utils.py (Gemini 1.5 Flash 통합 및 인증 최종 수정 버전)
 
 import os
 import re
@@ -38,12 +38,14 @@ def init_gemini_llm(temperature: float):
         if 'GOOGLE_APPLICATION_CREDENTIALS' in os.environ:
             del os.environ['GOOGLE_APPLICATION_CREDENTIALS']
             
-        # 2. Secret에서 JSON 문자열을 읽고 인증 정보 객체 생성
+        # 2. Secret에서 JSON 문자열을 읽고 인증 정보 객체 생성 준비
         credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
-        credentials = service_account.Credentials.from_service_account_info(credentials_info)
         
-        # 3. [최종 수정] universe_domain을 명시적으로 설정하여 Compute Engine 인증 시도 우회 (TransportError 2차 방어)
-        credentials.universe_domain = 'googleapis.com'
+        # 3. [수정] TransportError 우회 및 Setter 오류 해결: JSON 데이터에 universe_domain을 직접 추가
+        if "universe_domain" not in credentials_info:
+            credentials_info["universe_domain"] = 'googleapis.com'
+
+        credentials = service_account.Credentials.from_service_account_info(credentials_info)
 
         # 4. Vertex AI LLM 초기화 시 인증 정보를 명시적으로 전달합니다.
         llm = ChatVertexAI(
@@ -189,7 +191,7 @@ def generate_creative_reports(refined_text, summary_report, run_id=0):
 # --- 데이터 정리 및 Excel 내보내기 함수 (변경 없음) ---
 def to_excel(facts, summary, ksf, outline):
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openypxl') as writer:
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
         if facts:
             df_facts = pd.DataFrame.from_dict(facts, orient='index', columns=['내용'])
             df_facts.index.name = '항목'
