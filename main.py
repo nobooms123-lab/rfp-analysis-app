@@ -1,8 +1,6 @@
-main.py
 import streamlit as st
 import json
 
-아래 라인의 오타를 수정했습니다.
 from utils import get_vector_db, extract_facts, generate_strategic_report, generate_creative_reports, to_excel
 
 --- 1. 기본 설정 및 초기화 ---
@@ -98,3 +96,4 @@ data=excel_data,
 file_name=f"{st.session_state.uploaded_filename.split('.')[0]}_analysis.xlsx",
 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+
