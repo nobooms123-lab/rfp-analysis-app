@@ -34,7 +34,7 @@ def init_gemini_llm(temperature: float):
             st.error("Streamlit Secret에 GOOGLE_PROJECT_ID 또는 GOOGLE_CREDENTIALS_JSON이 설정되지 않았습니다.")
             return None
         
-        # 1. 환경 변수 충돌 방지 및 메타데이터 서버 접근 차단 (TransportError 최종 방어)
+        # 1. 환경 변수 충돌 방지 및 메타데이터 서버 접근 차단 (최종 방어)
         for env_var in [
             'GOOGLE_APPLICATION_CREDENTIALS', 
             'GCLOUD_PROJECT', 
@@ -42,13 +42,19 @@ def init_gemini_llm(temperature: float):
             'GCP_PROJECT'
         ]:
             if env_var in os.environ:
-                del os.environ[env_var] # 이 변수들을 환경에서 삭제
+                del os.environ[env_var] 
                 
-        # [핵심] TransportError 유발하는 메타데이터 접근을 무효화하는 가장 강력한 방법
-        os.environ['GCP_METADATA_HOST'] = 'invalid-host' # 무효한 호스트로 설정
+        # TransportError 유발하는 메타데이터 접근을 무효화
+        os.environ['GCP_METADATA_HOST'] = 'invalid-host'
 
         # 2. Secret에서 JSON 문자열을 읽고 인증 정보 객체 생성 준비
-        credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
+        json_string = st.secrets["GOOGLE_CREDENTIALS_JSON"]
+        
+        # [핵심 수정] Invalid control character 오류 해결: 문자열 정제
+        # .strip()을 사용하여 시작/끝 부분의 불필요한 공백이나 줄바꿈을 제거합니다.
+        cleaned_json_string = json_string.strip()
+
+        credentials_info = json.loads(cleaned_json_string) 
         
         # 3. [Setter 오류 해결] JSON 데이터에 universe_domain을 직접 추가
         if "universe_domain" not in credentials_info:
@@ -66,6 +72,7 @@ def init_gemini_llm(temperature: float):
         )
         return llm
     except Exception as e:
+        # 오류 메시지를 사용자에게 더 자세하게 보여줍니다.
         st.error(f"Vertex AI 모델 초기화 중 오류 발생: {e}. Secrets 설정을 확인하세요.")
         return None
 
@@ -213,4 +220,5 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
 
