@@ -24,11 +24,28 @@ def get_vector_db(_uploaded_file):
     try:
         file_bytes = _uploaded_file.getvalue()
         doc = fitz.open(stream=file_bytes, filetype="pdf")
-        all_text = [page.get_text() for page in doc]
+        
+        all_text_parts = []
+        for page in doc:
+            # [성능 개선] 'blocks' 옵션을 사용하여 텍스트 블록 단위로 추출하고,
+            # sort=True로 기본적인 정렬을 수행합니다.
+            # 이렇게 하면 다단 문서나 표의 텍스트 순서가 꼬이는 문제를 크게 개선할 수 있습니다.
+            blocks = page.get_text("blocks", sort=True)
+            
+            # y 좌표(b[1])를 기준으로 블록을 먼저 정렬하고, 그 다음 x 좌표(b[0]) 기준으로 정렬하여
+            # 위에서 아래로, 왼쪽에서 오른쪽으로의 읽기 순서를 최대한 보장합니다.
+            blocks.sort(key=lambda b: (b[1], b[0]))
+            
+            # 정렬된 블록에서 텍스트(b[4])만 추출하여 하나의 페이지 텍스트로 합칩니다.
+            page_text = "\n".join([b[4] for b in blocks if b[4].strip()]) # 내용이 있는 블록만 추가
+            all_text_parts.append(page_text)
+
         doc.close()
-        full_text_raw = "\n\n".join(all_text)
-        text = re.sub(r'\n\s*\n', '\n', full_text_raw)
+        
+        full_text_raw = "\n\n".join(all_text_parts)
+        text = re.sub(r'\n\s*\n', '\n\n', full_text_raw) # 과도한 줄바꿈은 정리하되, 문단 구분을 위해 2칸 유지
         full_text = text.strip()
+
     except Exception as e:
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
         return None, None
@@ -116,7 +133,5 @@ def to_excel(summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
-
-
 
 
