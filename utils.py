@@ -42,6 +42,7 @@ def init_gemini_llm(temperature: float):
         credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
         
         # 3. [수정] TransportError 우회 및 Setter 오류 해결: JSON 데이터에 universe_domain을 직접 추가
+        #    이 코드가 'Credentials' 객체에 universe_domain setter 오류를 발생시키지 않습니다.
         if "universe_domain" not in credentials_info:
             credentials_info["universe_domain"] = 'googleapis.com'
 
