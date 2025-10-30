@@ -1,4 +1,4 @@
-prompts.py
+# prompts.py
 FACT_EXTRACTION_PROMPT = """
 You are a highly accurate information extraction AI. Your sole task is to scan the provided RFP context and extract the following specific pieces of information.
 
@@ -101,6 +101,7 @@ Current Documents:
 User's Request: "{user_request}"
 Relevant RFP Context for fact-checking: {context}
 """
+
 
 
 
