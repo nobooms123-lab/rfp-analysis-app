@@ -61,7 +61,6 @@ def run_analysis_with_hyde(vector_db, final_prompt_template, user_question, sear
     """HyDE 전략을 사용하여 특정 질문에 대한 분석을 수행합니다."""
     
     # 1. HyDE: 가상 답변 생성 단계
-    # 검색 품질을 높이기 위해 빠르고 저렴한 모델을 사용할 수도 있습니다.
     hyde_llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=API_KEY)
     hyde_prompt = PromptTemplate.from_template(HYDE_PROMPT)
     hyde_chain = hyde_prompt | hyde_llm
@@ -85,7 +84,6 @@ def generate_all_reports(vector_db):
     if not vector_db:
         return None, None, None
     
-    # 각 분석의 목적을 명확한 '질문' 형태로 정의
     risk_question = "이 사업 제안요청서(RFP)를 분석하여, 제안사 입장에서 발생할 수 있는 기술적, 일정, 예산, 계약 관련 잠재적 리스크와 독소 조항을 모두 식별하고 설명해줘."
     ksf_question = "이 사업 제안요청서(RFP)를 분석하여, 경쟁에서 승리하고 사업을 성공시키기 위한 핵심 성공 요소(KSF) 3~5가지를 구체적인 실행 전략과 함께 도출해줘."
     outline_question = "이 사업 제안요청서(RFP)의 내용을 기반으로, '1. 사업의 이해 (5페이지)', '2. 사업 추진 전략 (9페이지)' 구조에 맞춰 각 페이지에 들어갈 핵심 메시지를 2줄씩 요약하여 발표자료 목차 초안을 작성해줘."
@@ -93,7 +91,7 @@ def generate_all_reports(vector_db):
     with st.spinner("1/3. 제안사 관점의 리스크를 분석 중입니다... (HyDE 적용)"):
         risk_report = run_analysis_with_hyde(
             vector_db,
-            RISK_ANALISYS_PROMPT,
+            RISK_ANALYSIS_PROMPT, # [수정] 오타 수정: ANALISYS -> ANALYSIS
             risk_question
         )
 
@@ -109,7 +107,7 @@ def generate_all_reports(vector_db):
             vector_db,
             PRESENTATION_OUTLINE_PROMPT,
             outline_question,
-            search_k=15 # 목차는 더 넓은 범위의 정보가 필요하므로 k값을 늘림
+            search_k=15
         )
         
     return risk_report, ksf_report, outline_report
