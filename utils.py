@@ -1,4 +1,4 @@
-# utils.py (Gemini 1.5 Flash 통합 및 인증 최종 수정 버전)
+# utils.py (Gemini 1.5 Flash 통합 및 인증 최종 차단 버전)
 
 import os
 import re
@@ -34,21 +34,23 @@ def init_gemini_llm(temperature: float):
             st.error("Streamlit Secret에 GOOGLE_PROJECT_ID 또는 GOOGLE_CREDENTIALS_JSON이 설정되지 않았습니다.")
             return None
         
-        # 1. 환경 변수 충돌 방지: Google의 기본 인증 시도를 막습니다. (TransportError 1차 방어)
+        # 1. 환경 변수 충돌 방지 및 메타데이터 서버 접근 차단 (TransportError 최종 방어)
         for env_var in [
             'GOOGLE_APPLICATION_CREDENTIALS', 
             'GCLOUD_PROJECT', 
             'GOOGLE_CLOUD_QUOTA_PROJECT',
-            'GCP_PROJECT' # 추가
+            'GCP_PROJECT'
         ]:
             if env_var in os.environ:
-                del os.environ[env_var]
-            
+                del os.environ[env_var] # 이 변수들을 환경에서 삭제
+                
+        # [핵심] TransportError 유발하는 메타데이터 접근을 무효화하는 가장 강력한 방법
+        os.environ['GCP_METADATA_HOST'] = 'invalid-host' # 무효한 호스트로 설정
+
         # 2. Secret에서 JSON 문자열을 읽고 인증 정보 객체 생성 준비
         credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
         
-        # 3. [수정] TransportError 우회 및 Setter 오류 해결: JSON 데이터에 universe_domain을 직접 추가
-        #    이 코드가 'Credentials' 객체에 universe_domain setter 오류를 발생시키지 않습니다.
+        # 3. [Setter 오류 해결] JSON 데이터에 universe_domain을 직접 추가
         if "universe_domain" not in credentials_info:
             credentials_info["universe_domain"] = 'googleapis.com'
 
@@ -67,7 +69,7 @@ def init_gemini_llm(temperature: float):
         st.error(f"Vertex AI 모델 초기화 중 오류 발생: {e}. Secrets 설정을 확인하세요.")
         return None
 
-# --- 파일 처리 함수들 (변경 없음) ---
+# --- 파일 처리 함수들 (이하 동일) ---
 def process_text_file(uploaded_file):
     try:
         full_text = uploaded_file.getvalue().decode("utf-8")
@@ -211,6 +213,4 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
-
-
 
