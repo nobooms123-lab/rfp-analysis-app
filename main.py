@@ -1,7 +1,8 @@
 # main.py
 
 import streamlit as st
-# get_vector_db_from_text 함수를 새로 import 합니다.
+from io import StringIO
+# get_vector_db_from_text 함수를 계속 사용합니다.
 from utils import get_vector_db, get_vector_db_from_text, generate_summary, generate_creative_reports, to_excel
 
 # --- 1. 기본 설정 및 초기화 ---
@@ -18,44 +19,48 @@ if 'source_type' not in st.session_state:
 st.sidebar.title("분석 프로세스")
 
 # 입력 방식을 선택하기 위한 탭 생성
-pdf_tab, text_tab = st.sidebar.tabs(["📄 PDF 업로드", "✍️ 텍스트 입력"])
+pdf_tab, text_tab = st.sidebar.tabs(["📄 PDF 업로드", "✍️ TXT 파일 업로드"])
 
 # --- 2-1. PDF 업로드 탭 ---
 with pdf_tab:
-    uploaded_file = st.file_uploader("1. 분석할 RFP PDF 파일 업로드", type="pdf")
+    uploaded_pdf_file = st.file_uploader("1. 분석할 RFP PDF 파일 업로드", type="pdf", key="pdf_uploader")
 
     # 새 PDF 파일이 업로드되면 모든 상태 초기화
-    if uploaded_file and st.session_state.get("uploaded_filename") != uploaded_file.name:
-        st.session_state.clear() # 모든 세션 상태 초기화
-        st.session_state.uploaded_filename = uploaded_file.name
+    if uploaded_pdf_file and st.session_state.get("uploaded_filename") != uploaded_pdf_file.name:
+        st.session_state.clear()
+        st.session_state.uploaded_filename = uploaded_pdf_file.name
         st.session_state.stage = 0
-        st.session_state.source_type = "pdf" # 소스 타입을 pdf로 지정
+        st.session_state.source_type = "pdf"
 
     # Stage 0 -> 1: PDF 파일 업로드 시 OCR 및 벡터 DB 생성 수행
-    if st.session_state.source_type == "pdf" and uploaded_file and st.session_state.stage == 0:
-        st.session_state.vector_db, st.session_state.ocr_text = get_vector_db(uploaded_file)
+    if st.session_state.source_type == "pdf" and uploaded_pdf_file and st.session_state.stage == 0:
+        st.session_state.vector_db, st.session_state.ocr_text = get_vector_db(uploaded_pdf_file)
         if st.session_state.vector_db and st.session_state.ocr_text:
             st.session_state.stage = 1
             st.rerun()
 
-# --- 2-2. 텍스트 입력 탭 ---
+# --- 2-2. 텍스트 파일 업로드 탭 ---
 with text_tab:
-    input_text = st.text_area("1. 분석할 RFP 텍스트를 붙여넣으세요.", height=300)
-    
-    if st.button("텍스트로 분석 시작"):
-        if input_text:
-            st.session_state.clear() # 모든 세션 상태 초기화
-            st.session_state.source_type = "text" # 소스 타입을 text로 지정
-            st.session_state.uploaded_filename = "text_input.txt" # 다운로드 파일명용
-            
-            # Stage 0 -> 1: 텍스트로 벡터 DB 생성 수행
-            st.session_state.vector_db = get_vector_db_from_text(input_text)
-            if st.session_state.vector_db:
-                st.session_state.ocr_text = input_text # 입력 텍스트를 ocr_text로 저장
-                st.session_state.stage = 1
-                st.rerun()
-        else:
-            st.warning("분석할 텍스트를 입력해주세요.")
+    uploaded_txt_file = st.file_uploader("1. 분석할 RFP 텍스트 파일 업로드", type="txt", key="txt_uploader")
+
+    # 새 TXT 파일이 업로드되면 모든 상태 초기화
+    if uploaded_txt_file and st.session_state.get("uploaded_filename") != uploaded_txt_file.name:
+        st.session_state.clear()
+        st.session_state.uploaded_filename = uploaded_txt_file.name
+        st.session_state.stage = 0
+        st.session_state.source_type = "text"
+
+    # Stage 0 -> 1: TXT 파일 업로드 시 벡터 DB 생성 수행
+    if st.session_state.source_type == "text" and uploaded_txt_file and st.session_state.stage == 0:
+        # 업로드된 파일을 문자열로 읽어옵니다. (UTF-8 인코딩으로 가정)
+        stringio = StringIO(uploaded_txt_file.getvalue().decode("utf-8"))
+        text_content = stringio.read()
+        
+        st.session_state.vector_db = get_vector_db_from_text(text_content)
+        if st.session_state.vector_db:
+            st.session_state.ocr_text = text_content # 파일 내용을 ocr_text로 저장
+            st.session_state.stage = 1
+            st.rerun()
 
 # --- 3. 단계별 실행 로직 (공통) ---
 
@@ -63,7 +68,7 @@ with text_tab:
 if st.session_state.stage >= 1:
     st.sidebar.success("✓ 1단계: 분석 준비 완료")
 
-    # [개선] OCR 텍스트 다운로드 기능 추가 (PDF로 입력했을 경우에만 표시)
+    # OCR 텍스트 다운로드 기능 (PDF로 입력했을 경우에만 표시)
     if st.session_state.source_type == "pdf":
         st.sidebar.download_button(
             label="📥 OCR 텍스트 다운로드",
@@ -104,7 +109,7 @@ if st.session_state.stage == 3:
 
 # --- 4. 메인 화면 UI 렌더링 ---
 if st.session_state.stage == 0:
-    st.info("사이드바에서 PDF를 업로드하거나 텍스트를 입력하면 분석이 시작됩니다.")
+    st.info("사이드바에서 PDF 또는 TXT 파일을 업로드하면 분석이 시작됩니다.")
 
 # 결과 탭 구성 (분석 준비 완료 후 항상 보이도록)
 if st.session_state.stage >= 1:
@@ -132,4 +137,7 @@ if st.session_state.stage >= 1:
         if 'ocr_text' in st.session_state:
             st.text_area("추출/입력된 전체 텍스트", st.session_state.ocr_text, height=400)
         else:
+            st.info("PDF 또는 TXT 파일을 업로드해주세요.")
+
             st.info("PDF 파일을 업로드하거나 텍스트를 입력해주세요.")
+
