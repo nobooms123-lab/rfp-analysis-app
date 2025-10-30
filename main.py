@@ -2,142 +2,86 @@
 
 import streamlit as st
 from io import StringIO
-# get_vector_db_from_text 함수를 계속 사용합니다.
-from utils import get_vector_db, get_vector_db_from_text, generate_summary, generate_creative_reports, to_excel
+from utils import extract_text_from_pdf, refine_rfp_text
 
 # --- 1. 기본 설정 및 초기화 ---
-st.set_page_config(page_title="RFP 분석 및 제안 전략 도우미", layout="wide")
-st.title("RFP 분석 및 제안 전략 수립 도우미")
+st.set_page_config(page_title="RFP 텍스트 정제 도우미", layout="wide")
+st.title("RFP 텍스트 정제 도우미")
+st.info("PDF나 TXT 형식의 제안요청서를 업로드하여 불필요한 내용을 제거하고 핵심만 추출합니다.")
 
-# 세션 상태 초기화
+# 세션 상태 초기화 (Stage 재정의)
 if 'stage' not in st.session_state:
-    st.session_state.stage = 0  # 0: 초기, 1: 분석준비완료, 2: 요약완료, 3: 전체완료
-if 'source_type' not in st.session_state:
-    st.session_state.source_type = None # 입력 소스 추적 (pdf 또는 text)
+    # 0: 초기 -> 1: 원본텍스트 준비 -> 2: 텍스트정제 완료
+    st.session_state.stage = 0
 
-# --- 2. 사이드바 구성 (입력 방식 선택) ---
-st.sidebar.title("분석 프로세스")
+def reset_session():
+    # 파일이 바뀔 때 세션 상태 초기화
+    keys_to_clear = ['stage', 'raw_text', 'refined_text', 'uploaded_filename']
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.session_state.stage = 0
 
-# 입력 방식을 선택하기 위한 탭 생성
+# --- 2. 사이드바 구성 (입력) ---
+st.sidebar.title("작업 순서")
+
+# 입력 방식 선택 탭
 pdf_tab, text_tab = st.sidebar.tabs(["📄 PDF 업로드", "✍️ TXT 파일 업로드"])
 
-# --- 2-1. PDF 업로드 탭 ---
 with pdf_tab:
-    uploaded_pdf_file = st.file_uploader("1. 분석할 RFP PDF 파일 업로드", type="pdf", key="pdf_uploader")
-
-    # 새 PDF 파일이 업로드되면 모든 상태 초기화
-    if uploaded_pdf_file and st.session_state.get("uploaded_filename") != uploaded_pdf_file.name:
-        st.session_state.clear()
+    uploaded_pdf_file = st.file_uploader("1. PDF 파일 업로드", type="pdf", key="pdf_uploader", on_change=reset_session)
+    if uploaded_pdf_file and st.session_state.stage == 0:
         st.session_state.uploaded_filename = uploaded_pdf_file.name
-        st.session_state.stage = 0
-        st.session_state.source_type = "pdf"
-
-    # Stage 0 -> 1: PDF 파일 업로드 시 OCR 및 벡터 DB 생성 수행
-    if st.session_state.source_type == "pdf" and uploaded_pdf_file and st.session_state.stage == 0:
-        st.session_state.vector_db, st.session_state.ocr_text = get_vector_db(uploaded_pdf_file)
-        if st.session_state.vector_db and st.session_state.ocr_text:
+        st.session_state.raw_text = extract_text_from_pdf(uploaded_pdf_file)
+        if st.session_state.raw_text:
             st.session_state.stage = 1
             st.rerun()
 
-# --- 2-2. 텍스트 파일 업로드 탭 ---
 with text_tab:
-    uploaded_txt_file = st.file_uploader("1. 분석할 RFP 텍스트 파일 업로드", type="txt", key="txt_uploader")
-
-    # 새 TXT 파일이 업로드되면 모든 상태 초기화
-    if uploaded_txt_file and st.session_state.get("uploaded_filename") != uploaded_txt_file.name:
-        st.session_state.clear()
+    uploaded_txt_file = st.file_uploader("1. TXT 파일 업로드", type="txt", key="txt_uploader", on_change=reset_session)
+    if uploaded_txt_file and st.session_state.stage == 0:
         st.session_state.uploaded_filename = uploaded_txt_file.name
-        st.session_state.stage = 0
-        st.session_state.source_type = "text"
-
-    # Stage 0 -> 1: TXT 파일 업로드 시 벡터 DB 생성 수행
-    if st.session_state.source_type == "text" and uploaded_txt_file and st.session_state.stage == 0:
-        # 업로드된 파일을 문자열로 읽어옵니다. (UTF-8 인코딩으로 가정)
         stringio = StringIO(uploaded_txt_file.getvalue().decode("utf-8"))
-        text_content = stringio.read()
-        
-        st.session_state.vector_db = get_vector_db_from_text(text_content)
-        if st.session_state.vector_db:
-            st.session_state.ocr_text = text_content # 파일 내용을 ocr_text로 저장
+        st.session_state.raw_text = stringio.read()
+        if st.session_state.raw_text:
             st.session_state.stage = 1
             st.rerun()
 
-# --- 3. 단계별 실행 로직 (공통) ---
+# --- 3. 단계별 실행 로직 ---
 
-# Stage 1: 분석 준비 완료, 요약 생성 대기
+# Stage 1: 원본 텍스트 준비 완료 -> 정제 대기
 if st.session_state.stage >= 1:
-    st.sidebar.success("✓ 1단계: 분석 준비 완료")
-
-    # OCR 텍스트 다운로드 기능 (PDF로 입력했을 경우에만 표시)
-    if st.session_state.source_type == "pdf":
-        st.sidebar.download_button(
-            label="📥 OCR 텍스트 다운로드",
-            data=st.session_state.ocr_text.encode('utf-8'),
-            file_name=f"{st.session_state.uploaded_filename.split('.')[0]}_ocr.txt",
-            mime="text/plain"
-        )
-    
-    if st.sidebar.button("2. 제안사 관점 요약 생성", disabled=(st.session_state.stage > 1)):
-        summary = generate_summary(st.session_state.vector_db)
-        if summary:
-            st.session_state.summary = summary
+    st.sidebar.success("✓ 1단계: 원본 텍스트 준비 완료")
+    if st.sidebar.button("2. RFP 텍스트 정제 실행", disabled=(st.session_state.stage > 1)):
+        refined_text = refine_rfp_text(st.session_state.raw_text)
+        if refined_text:
+            st.session_state.refined_text = refined_text
             st.session_state.stage = 2
             st.rerun()
 
-# Stage 2: 요약 완료, KSF/목차 생성 대기
+# Stage 2: 텍스트 정제 완료
 if st.session_state.stage >= 2:
-    st.sidebar.success("✓ 2단계: 요약 생성 완료")
-    if st.sidebar.button("3. KSF 및 발표 목차 생성", disabled=(st.session_state.stage > 2)):
-        ksf, outline = generate_creative_reports(st.session_state.vector_db, st.session_state.summary)
-        if ksf and outline:
-            st.session_state.ksf = ksf
-            st.session_state.presentation_outline = outline
-            st.session_state.stage = 3
-            st.rerun()
-
-# Stage 3: 모든 작업 완료
-if st.session_state.stage == 3:
-    st.sidebar.success("✓ 3단계: 모든 분석 완료!")
+    st.sidebar.success("✓ 2단계: 텍스트 정제 완료")
     st.sidebar.header("결과 다운로드")
-    excel_data = to_excel(st.session_state.summary, st.session_state.ksf, st.session_state.presentation_outline)
     st.sidebar.download_button(
-        label="📥 전체 결과 Excel 다운로드",
-        data=excel_data,
-        file_name=f"{st.session_state.uploaded_filename.split('.')[0]}_analysis.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        label="📥 정제된 텍스트 다운로드 (.md)",
+        data=st.session_state.refined_text.encode('utf-8'),
+        file_name=f"{st.session_state.uploaded_filename.split('.')[0]}_refined.md",
+        mime="text/markdown"
     )
 
 # --- 4. 메인 화면 UI 렌더링 ---
-if st.session_state.stage == 0:
-    st.info("사이드바에서 PDF 또는 TXT 파일을 업로드하면 분석이 시작됩니다.")
+if st.session_state.stage < 1:
+    st.warning("사이드바에서 분석할 파일을 업로드해주세요.")
+else:
+    tab1, tab2 = st.tabs(["RFP 원본 텍스트", "정제된 텍스트"])
 
-# 결과 탭 구성 (분석 준비 완료 후 항상 보이도록)
-if st.session_state.stage >= 1:
-    tabs = st.tabs(["제안서 요약", "핵심 성공 요소", "발표자료 목차", "입력 원본 텍스트"])
+    with tab1:
+        st.text_area("RFP 원본", st.session_state.get("raw_text", ""), height=500)
 
-    with tabs[0]:
-        if 'summary' in st.session_state:
-            st.markdown(st.session_state.summary)
+    with tab2:
+        if st.session_state.stage < 2:
+            st.info("사이드바에서 'RFP 텍스트 정제 실행' 버튼을 눌러주세요.")
         else:
-            st.info("2단계 '제안사 관점 요약 생성'을 실행해주세요.")
-
-    with tabs[1]:
-        if 'ksf' in st.session_state:
-            st.markdown(st.session_state.ksf)
-        else:
-            st.info("3단계 'KSF 및 발표 목차 생성'을 실행해주세요.")
-
-    with tabs[2]:
-        if 'presentation_outline' in st.session_state:
-            st.markdown(st.session_state.presentation_outline)
-        else:
-            st.info("3단계 'KSF 및 발표 목차 생성'을 실행해주세요.")
-
-    with tabs[3]:
-        if 'ocr_text' in st.session_state:
-            st.text_area("추출/입력된 전체 텍스트", st.session_state.ocr_text, height=400)
-        else:
-            st.info("PDF 또는 TXT 파일을 업로드해주세요.")
-
-            st.info("PDF 파일을 업로드하거나 텍스트를 입력해주세요.")
+            st.markdown(st.session_state.get("refined_text", ""))
 
