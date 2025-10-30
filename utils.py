@@ -35,15 +35,18 @@ def init_gemini_llm(temperature: float):
             st.error("Streamlit Secret에 GOOGLE_PROJECT_ID 또는 GOOGLE_CREDENTIALS_JSON이 설정되지 않았습니다.")
             return None
         
-        # 환경 변수 충돌 방지: Google의 기본 인증 시도를 막습니다. (TransportError 해결)
+        # 1. 환경 변수 충돌 방지: Google의 기본 인증 시도를 막습니다. (TransportError 1차 방어)
         if 'GOOGLE_APPLICATION_CREDENTIALS' in os.environ:
             del os.environ['GOOGLE_APPLICATION_CREDENTIALS']
             
-        # 1. Secret에서 JSON 문자열을 읽고 인증 정보 객체 생성
+        # 2. Secret에서 JSON 문자열을 읽고 인증 정보 객체 생성
         credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
         credentials = service_account.Credentials.from_service_account_info(credentials_info)
+        
+        # 3. [최종 수정] universe_domain을 명시적으로 설정하여 Compute Engine 인증 시도 우회 (TransportError 2차 방어)
+        credentials.universe_domain = 'googleapis.com' # 이 한 줄이 추가되었습니다!
 
-        # 2. Vertex AI LLM 초기화 시 인증 정보를 명시적으로 전달합니다.
+        # 4. Vertex AI LLM 초기화 시 인증 정보를 명시적으로 전달합니다.
         llm = ChatVertexAI(
             project=st.secrets["GOOGLE_PROJECT_ID"],
             model_name="gemini-1.5-flash-001",
@@ -200,4 +203,5 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
 
