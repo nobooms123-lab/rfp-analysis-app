@@ -2,136 +2,56 @@
 
 import os
 import re
-import pandas as pd
-import io
 import streamlit as st
 import fitz  # PyMuPDF
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_community.vectorstores import FAISS
+from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
-from prompts import BIDDER_VIEW_SUMMARY_PROMPT, KSF_PROMPT_TEMPLATE, OUTLINE_PROMPT_TEMPLATE
+from prompts import RFP_REFINEMENT_PROMPT
 
 API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 if not API_KEY:
     st.error("OpenAI API 키가 설정되지 않았습니다. st.secrets 또는 환경변수를 확인해주세요.")
 
-@st.cache_resource(show_spinner="PDF 분석 및 데이터베이스 생성 중...")
-def get_vector_db(_uploaded_file):
-    if not API_KEY:
-        return None, None
+# PDF에서 텍스트만 추출하는 기능으로 단순화
+@st.cache_data(show_spinner="PDF에서 텍스트를 추출 중입니다...")
+def extract_text_from_pdf(_uploaded_file):
     try:
         file_bytes = _uploaded_file.getvalue()
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         
         all_text_parts = []
         for page in doc:
-            # [성능 개선] 'blocks' 옵션을 사용하여 텍스트 블록 단위로 추출하고,
-            # sort=True로 기본적인 정렬을 수행합니다.
-            # 이렇게 하면 다단 문서나 표의 텍스트 순서가 꼬이는 문제를 크게 개선할 수 있습니다.
             blocks = page.get_text("blocks", sort=True)
-            
-            # y 좌표(b[1])를 기준으로 블록을 먼저 정렬하고, 그 다음 x 좌표(b[0]) 기준으로 정렬하여
-            # 위에서 아래로, 왼쪽에서 오른쪽으로의 읽기 순서를 최대한 보장합니다.
             blocks.sort(key=lambda b: (b[1], b[0]))
-            
-            # 정렬된 블록에서 텍스트(b[4])만 추출하여 하나의 페이지 텍스트로 합칩니다.
-            page_text = "\n".join([b[4] for b in blocks if b[4].strip()]) # 내용이 있는 블록만 추가
+            page_text = "\n".join([b[4] for b in blocks if b[4].strip()])
             all_text_parts.append(page_text)
 
         doc.close()
         
         full_text_raw = "\n\n".join(all_text_parts)
-        text = re.sub(r'\n\s*\n', '\n\n', full_text_raw) # 과도한 줄바꿈은 정리하되, 문단 구분을 위해 2칸 유지
-        full_text = text.strip()
-
+        text = re.sub(r'\n\s*\n', '\n\n', full_text_raw)
+        return text.strip()
     except Exception as e:
         st.error(f"PDF 텍스트 추출 중 오류 발생: {e}")
-        return None, None
+        return None
 
-    if not full_text:
-        st.warning("PDF에서 텍스트를 추출할 수 없습니다.")
-        return None, None
-
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
-    chunks = text_splitter.split_text(full_text)
-    doc_chunks = [Document(page_content=t) for t in chunks]
-    
-    embeddings = OpenAIEmbeddings(api_key=API_KEY)
-    vector_db = FAISS.from_documents(doc_chunks, embeddings)
-    
-    return vector_db, full_text
-
-# [신규 추가] 텍스트 입력을 받아 벡터 DB를 생성하는 함수
-@st.cache_resource(show_spinner="텍스트 분석 및 데이터베이스 생성 중...")
-def get_vector_db_from_text(text_input):
-    if not API_KEY or not text_input:
+# RFP 텍스트를 정제하는 핵심 함수
+@st.cache_data(show_spinner="AI가 RFP 원본 텍스트를 핵심 내용 위주로 정제 중입니다...")
+def refine_rfp_text(raw_text):
+    if not API_KEY or not raw_text:
         return None
     
     try:
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
-        chunks = text_splitter.split_text(text_input)
-        doc_chunks = [Document(page_content=t) for t in chunks]
+        # 정제 작업은 일관성이 중요하므로 temperature를 낮게 설정
+        llm = ChatOpenAI(model="gpt-4o", temperature=0.1, openai_api_key=API_KEY)
         
-        embeddings = OpenAIEmbeddings(api_key=API_KEY)
-        vector_db = FAISS.from_documents(doc_chunks, embeddings)
+        prompt = PromptTemplate.from_template(RFP_REFINEMENT_PROMPT)
+        chain = prompt | llm
+        response = chain.invoke({"raw_text": raw_text})
         
-        return vector_db
+        return response.content
     except Exception as e:
-        st.error(f"텍스트 처리 중 오류 발생: {e}")
+        st.error(f"텍스트 정제 중 오류 발생: {e}")
         return None
-
-# --- Part 1: 제안서 요약 생성 ---
-@st.cache_data(show_spinner="AI 컨설턴트가 제안사 관점에서 RFP를 분석 중입니다...")
-def generate_summary(_vector_db):
-    if _vector_db is None or not API_KEY:
-        return None
-    
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=API_KEY)
-    relevant_docs = _vector_db.similarity_search(
-        "사업 개요, 추진 배경, 사업 범위, 요구사항, 사업 예산, 사업 기간, 계약 조건, 평가 기준", k=15)
-    context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
-    
-    prompt = PromptTemplate.from_template(BIDDER_VIEW_SUMMARY_PROMPT)
-    chain = prompt | llm
-    response = chain.invoke({"context": context})
-    
-    return response.content
-
-# --- Part 2: KSF 및 목차 생성 ---
-@st.cache_data(show_spinner="AI 전략가가 핵심 성공 요소와 발표 목차를 구상 중입니다...")
-def generate_creative_reports(_vector_db, summary):
-    if _vector_db is None or summary is None or not API_KEY:
-        return None, None
-    
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.7, openai_api_key=API_KEY)
-    creative_context_docs = _vector_db.similarity_search("RFP의 전체적인 내용, 사업 목표, 요구사항, 평가 기준", k=10)
-    creative_context = "\n\n---\n\n".join([doc.page_content for doc in creative_context_docs])
-    
-    ksf_prompt = PromptTemplate.from_template(KSF_PROMPT_TEMPLATE)
-    ksf_chain = ksf_prompt | llm
-    ksf_response = ksf_chain.invoke({"context": creative_context})
-    ksf = ksf_response.content
-    
-    outline_prompt = PromptTemplate.from_template(OUTLINE_PROMPT_TEMPLATE)
-    outline_chain = outline_prompt | llm
-    outline_response = outline_chain.invoke({"summary": summary, "ksf": ksf, "context": creative_context})
-    presentation_outline = outline_response.content
-    
-    return ksf, presentation_outline
-
-# --- Part 3: Excel 변환 ---
-def to_excel(summary, ksf, outline):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_summary = pd.DataFrame([summary.replace("\n", "\r\n")], columns=["내용"])
-        df_summary.to_excel(writer, sheet_name='제안서 요약', index=False)
-        df_ksf = pd.DataFrame([ksf.replace("\n", "\r\n")], columns=["내용"])
-        df_ksf.to_excel(writer, sheet_name='핵심 성공 요소', index=False)
-        df_outline = pd.DataFrame([outline.replace("\n", "\r\n")], columns=["내용"])
-        df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
-    processed_data = output.getvalue()
-    return processed_data
 
 
