@@ -1,3 +1,10 @@
-# packages.txt (이 내용으로 유지하세요)
 libgl1-mesa-glx
 libglib2.0-0
+poppler-utils
+tesseract-ocr
+tesseract-ocr-kor
+fonts-nanum
+fonts-unfonts-core
+fonts-noto-cjk
+fonts-baekmuk
+poppler-utils
