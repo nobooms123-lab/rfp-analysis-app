@@ -77,7 +77,7 @@ def refine_rfp_text(_full_text, run_id=0):
         return None
     
     # LLM 초기화 (temperature=0)
-    llm = init_gemini_llm(temperature=0)
+    llm = init_openai_llm(temperature=0)
     if not llm: return None
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=30000, chunk_overlap=1000)
@@ -192,6 +192,7 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
 
 
 
