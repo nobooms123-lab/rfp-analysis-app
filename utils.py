@@ -35,8 +35,14 @@ def init_gemini_llm(temperature: float):
             return None
         
         # 1. 환경 변수 충돌 방지: Google의 기본 인증 시도를 막습니다. (TransportError 1차 방어)
-        if 'GOOGLE_APPLICATION_CREDENTIALS' in os.environ:
-            del os.environ['GOOGLE_APPLICATION_CREDENTIALS']
+        for env_var in [
+            'GOOGLE_APPLICATION_CREDENTIALS', 
+            'GCLOUD_PROJECT', 
+            'GOOGLE_CLOUD_QUOTA_PROJECT',
+            'GCP_PROJECT' # 추가
+        ]:
+            if env_var in os.environ:
+                del os.environ[env_var]
             
         # 2. Secret에서 JSON 문자열을 읽고 인증 정보 객체 생성 준비
         credentials_info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
@@ -205,5 +211,6 @@ def to_excel(facts, summary, ksf, outline):
         df_outline.to_excel(writer, sheet_name='발표자료 목차', index=False)
     processed_data = output.getvalue()
     return processed_data
+
 
 
