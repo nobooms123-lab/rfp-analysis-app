@@ -1,4 +1,4 @@
-# utils.py (Gemini 1.5 Flash 통합 및 인증 강화 버전)
+# utils.py (Gemini 1.5 Flash 통합 및 인증 최종 강화 버전)
 
 import os
 import re
@@ -8,16 +8,15 @@ import io
 import streamlit as st
 import fitz  # PyMuPDF
 
-# langchain_openai 관련 임포트는 모두 제거됨 (Gemini 단독 사용)
-
+# [필수 임포트]
+from google.oauth2 import service_account 
+from langchain_google_vertexai import ChatVertexAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain.prompts import PromptTemplate
 from langchain.chains.summarize import load_summarize_chain
-from langchain_google_vertexai import ChatVertexAI
-from google.oauth2 import service_account 
 
-# 프롬프트 임포트
+# 프롬프트 임포트 (prompts.py 파일이 있다고 가정)
 from prompts import (
     RFP_REFINEMENT_PROMPT,
     FACT_EXTRACTION_PROMPT,
@@ -44,7 +43,7 @@ def init_gemini_llm(temperature: float):
         credentials = service_account.Credentials.from_service_account_info(credentials_info)
         
         # 3. [최종 수정] universe_domain을 명시적으로 설정하여 Compute Engine 인증 시도 우회 (TransportError 2차 방어)
-        credentials.universe_domain = 'googleapis.com' # 이 한 줄이 추가되었습니다!
+        credentials.universe_domain = 'googleapis.com'
 
         # 4. Vertex AI LLM 초기화 시 인증 정보를 명시적으로 전달합니다.
         llm = ChatVertexAI(
@@ -190,7 +189,7 @@ def generate_creative_reports(refined_text, summary_report, run_id=0):
 # --- 데이터 정리 및 Excel 내보내기 함수 (변경 없음) ---
 def to_excel(facts, summary, ksf, outline):
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+    with pd.ExcelWriter(output, engine='openypxl') as writer:
         if facts:
             df_facts = pd.DataFrame.from_dict(facts, orient='index', columns=['내용'])
             df_facts.index.name = '항목'
