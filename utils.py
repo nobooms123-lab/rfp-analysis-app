@@ -10,13 +10,11 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 from prompts import (
-    RISK_ANALYSIS_PROMPT, KSF_ANALYSIS_PROMPT, HOLISTIC_PRESENTATION_STORYLINE_PROMPT,
-    HYDE_PROMPT, GRANULAR_REFINEMENT_CHAT_PROMPT
+    CONTEXT_EXTRACTION_PROMPT, RISK_ANALYSIS_PROMPT, KSF_ANALYSIS_PROMPT, 
+    HOLISTIC_PRESENTATION_STORYLINE_PROMPT, HYDE_PROMPT, GRANULAR_REFINEMENT_CHAT_PROMPT
 )
 
 API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-if not API_KEY:
-    st.error("OpenAI API 키가 설정되지 않았습니다. st.secrets 또는 환경변수를 확인해주세요.")
 
 def extract_text_from_file(uploaded_file):
     if uploaded_file.type == "application/pdf":
@@ -51,6 +49,24 @@ def create_vector_db(text):
         st.error(f"벡터 DB 생성 중 오류: {e}")
         return None
 
+# [신규 추가] 사업 핵심 개요를 추출하는 함수
+@st.cache_data(show_spinner="사업의 핵심 개요를 추출 중입니다...")
+def extract_project_summary(_vector_db):
+    if not _vector_db: return "사업 개요 정보를 추출할 수 없습니다."
+    try:
+        retriever = _vector_db.as_retriever(search_kwargs={'k': 5})
+        relevant_docs = retriever.get_relevant_documents("사업명, 사업개요, 추진배경, 사업목표")
+        context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
+
+        llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=API_KEY)
+        prompt = PromptTemplate.from_template(CONTEXT_EXTRACTION_PROMPT)
+        chain = prompt | llm
+        summary = chain.invoke({"context": context}).content
+        return summary
+    except Exception as e:
+        st.error(f"사업 개요 추출 중 오류: {e}")
+        return "사업 개요 추출 중 오류가 발생했습니다."
+
 def run_analysis_with_inputs(vector_db, prompt_template, search_query, inputs, search_k=10):
     hyde_llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=API_KEY)
     hyde_prompt = PromptTemplate.from_template(HYDE_PROMPT)
@@ -69,24 +85,28 @@ def run_analysis_with_inputs(vector_db, prompt_template, search_query, inputs, s
     response = final_chain.invoke(inputs)
     return response.content
 
-@st.cache_data(show_spinner="단계 1: 제안사 관점의 리스크를 분석 중입니다...")
+@st.cache_data(show_spinner="단계 1: 리스크 분석...")
 def generate_risk_report(_vector_db):
     question = "이 RFP를 분석하여, 제안사 입장에서의 잠재적 리스크와 도전 과제를 관리 전략과 함께 설명해줘."
     return run_analysis_with_inputs(_vector_db, RISK_ANALYSIS_PROMPT, question, inputs={})
 
-@st.cache_data(show_spinner="단계 2: 핵심 성공 요소를 도출 중입니다...")
+@st.cache_data(show_spinner="단계 2: KSF 분석...")
 def generate_ksf_report(_vector_db, final_risk_report):
     question = "이 RFP와 식별된 리스크를 바탕으로, 경쟁에서 승리하기 위한 핵심 성공 요소(KSF)를 도출해줘."
     return run_analysis_with_inputs(_vector_db, KSF_ANALYSIS_PROMPT, question, inputs={"risk_report": final_risk_report})
 
-@st.cache_data(show_spinner="단계 3: 제안 발표 목차를 생성 중입니다...")
-def generate_outline_report(_vector_db, final_risk_report, final_ksf_report):
+@st.cache_data(show_spinner="단계 3: 목차 생성...")
+def generate_outline_report(_vector_db, project_summary, final_risk_report, final_ksf_report):
     question = "이 RFP의 전반적인 내용과 목표, 요구사항을 종합하여 발표자료의 흐름을 잡아줘."
     return run_analysis_with_inputs(
         _vector_db,
         HOLISTIC_PRESENTATION_STORYLINE_PROMPT,
         question,
-        inputs={"risk_report": final_risk_report, "ksf_report": final_ksf_report},
+        inputs={
+            "project_summary": project_summary,
+            "risk_report": final_risk_report,
+            "ksf_report": final_ksf_report
+        },
         search_k=15
     )
 
