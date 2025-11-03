@@ -17,19 +17,14 @@ from prompts import (
 
 API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 
-# [신규] AI 기반 텍스트 정제 함수
 @st.cache_data(show_spinner="AI가 OCR 추출 텍스트를 자동으로 정제하고 있습니다...")
 def refine_text_with_ai(text_to_refine):
-    """OCR로 추출된 텍스트를 LLM을 사용해 정제합니다."""
     if not text_to_refine or not text_to_refine.strip():
         return ""
     try:
         llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=API_KEY)
         prompt = PromptTemplate.from_template(TEXT_REFINEMENT_PROMPT)
         chain = prompt | llm | StrOutputParser()
-
-        # 긴 텍스트를 처리하기 위해 청크 단위로 나눌 수 있지만,
-        # gpt-4o의 컨텍스트가 충분히 크므로 전체를 한번에 처리 시도
         refined_text = chain.invoke({"raw_text": text_to_refine})
         return refined_text
     except Exception as e:
@@ -37,9 +32,7 @@ def refine_text_with_ai(text_to_refine):
         st.warning("원본 텍스트를 그대로 사용하여 분석을 진행합니다.")
         return text_to_refine
 
-# [수정] 텍스트 추출 함수가 원본과 정제본을 모두 반환하도록 변경
 def extract_text_from_file(uploaded_file):
-    """파일에서 텍스트를 추출하고, PDF의 경우 AI 정제를 수행합니다."""
     raw_text = None
     if uploaded_file.type == "application/pdf":
         try:
@@ -59,12 +52,10 @@ def extract_text_from_file(uploaded_file):
         raw_text = uploaded_file.getvalue().decode("utf-8")
     
     if raw_text:
-        # PDF인 경우에만 AI 정제 레이어 호출 (TXT는 원본 그대로 사용)
         if uploaded_file.type == "application/pdf":
             refined_text = refine_text_with_ai(raw_text)
             return raw_text, refined_text
         else:
-            # TXT 파일은 정제가 불필요하므로 원본을 그대로 사용
             return raw_text, raw_text
             
     return None, None
@@ -138,12 +129,37 @@ def generate_outline_report(_vector_db, project_summary, final_risk_report, fina
         search_k=15
     )
 
+# [수정됨] AI 출력 형식 변화에 유연하게 대응하도록 정규표현식 수정
 def parse_report_items(report_text):
-    pattern = re.compile(r'(?=\n(?:## |\*\*|\* \*\*)\d+\..*?)', re.DOTALL)
+    """
+    AI가 생성한 보고서 텍스트를 헤더와 개별 항목으로 분리합니다.
+    다양한 마크다운 형식의 번호 매기기 목록을 인식하도록 개선되었습니다.
+    """
+    if not report_text:
+        return "", []
+
+    # 훨씬 유연한 정규표현식: 
+    # 줄 시작 부분(선택적 공백 포함)에 (선택적 마크다운) 숫자. 형식으로 된 모든 것을 찾습니다.
+    # 예: "1.", "**2.**", "* 3.", "## 4." 등
+    pattern = re.compile(r'(?=\n\s*(?:## |\*\*|\* \*\*|\* )?\d+\.\s)', re.DOTALL)
     items = pattern.split(report_text)
-    parsed_items = [item.strip() for item in items if item and re.search(r'^(?:## |\*\*|\* \*\*)\d+\.', item.strip())]
-    header = items[0].strip() if items and not re.search(r'^(?:## |\*\*|\* \*\*)\d+\.', items[0].strip()) else ""
+    
+    header = ""
+    parsed_items = []
+
+    if not items:
+        return "", []
+
+    # 첫 번째 요소가 항목 시작 패턴과 일치하지 않으면 헤더로 간주
+    first_item_check = re.match(r'^\s*(?:## |\*\*|\* \*\*|\* )?\d+\.\s', items[0].strip())
+    if not first_item_check:
+        header = items.pop(0).strip()
+
+    # 나머지 항목들을 정리
+    parsed_items = [item.strip() for item in items if item.strip()]
+
     return header, parsed_items
+
 
 def refine_report_with_chat(vector_db, locked_items, unlocked_items, user_request):
     retriever = vector_db.as_retriever(search_kwargs={'k': 5})
