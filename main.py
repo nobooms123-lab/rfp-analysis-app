@@ -32,13 +32,22 @@ with st.sidebar:
         st.session_state.uploaded_filename = uploaded_file.name
         raw_text = extract_text_from_file(uploaded_file)
         if raw_text:
+            st.session_state.raw_text = raw_text # [신규] 원본 텍스트 저장
+            st.session_state.source_file_type = uploaded_file.type # [신규] 파일 타입 저장
             st.session_state.vector_db = create_vector_db(raw_text)
-            # [신규] 벡터 DB 생성 후 즉시 사업 개요 추출
             st.session_state.project_summary = extract_project_summary(st.session_state.vector_db)
             st.session_state.stage = 0
         st.rerun()
 
-    # [신규] 추출된 사업 개요를 사이드바에 고정 표시
+    # [신규] 추출된 텍스트 다운로드 버튼 (PDF 업로드 시에만 표시)
+    if st.session_state.get("source_file_type") == "application/pdf" and st.session_state.get("raw_text"):
+        st.download_button(
+            label="📥 추출된 원본 텍스트 다운로드",
+            data=st.session_state.raw_text.encode('utf-8'),
+            file_name=f"{st.session_state.uploaded_filename.split('.')[0]}_extracted.txt",
+            mime="text/plain"
+        )
+
     if st.session_state.get("project_summary"):
         with st.expander("사업 핵심 개요", expanded=True):
             st.markdown(st.session_state.project_summary)
@@ -60,7 +69,7 @@ with st.sidebar:
         if st.button("단계 3: 제안 목차 생성", disabled=(st.session_state.stage < 2 or st.session_state.stage >= 3), type="primary"):
             st.session_state.reports['outline'] = generate_outline_report(
                 st.session_state.vector_db,
-                st.session_state.project_summary, # [수정] 사업 개요 전달
+                st.session_state.project_summary,
                 st.session_state.reports['risk'],
                 st.session_state.reports['ksf']
             )
@@ -150,4 +159,3 @@ else:
                         st.rerun()
         else:
             st.info("먼저 분석 단계를 실행하여 수정할 보고서를 생성해주세요.")
-
