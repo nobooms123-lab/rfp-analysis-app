@@ -11,8 +11,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_community.vectorstores import FAISS
 from prompts import (
     PROJECT_SUMMARY_PROMPT, RISK_ANALYSIS_PROMPT, KSF_ANALYSIS_PROMPT,
-    HOLISTIC_PRESENTATION_STORYLINE_PROMPT, HYDE_PROMPT, GRANULAR_REFINEMENT_CHAT_PROMPT,
-    TEXT_REFINEMENT_PROMPT
+    HOLISTIC_PRESENTATION_STORYLINE_PROMPT, HYDE_PROMPT,
+    TEXT_REFINEMENT_PROMPT, GENERAL_REPORT_REFINEMENT_PROMPT # 수정됨
 )
 
 API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
@@ -129,50 +129,34 @@ def generate_outline_report(_vector_db, project_summary, final_risk_report, fina
         search_k=15
     )
 
-# [수정됨] AI 출력 형식 변화에 유연하게 대응하도록 정규표현식 수정
 def parse_report_items(report_text):
-    """
-    AI가 생성한 보고서 텍스트를 헤더와 개별 항목으로 분리합니다.
-    다양한 마크다운 형식의 번호 매기기 목록을 인식하도록 개선되었습니다.
-    """
     if not report_text:
         return "", []
-
-    # 훨씬 유연한 정규표현식: 
-    # 줄 시작 부분(선택적 공백 포함)에 (선택적 마크다운) 숫자. 형식으로 된 모든 것을 찾습니다.
-    # 예: "1.", "**2.**", "* 3.", "## 4." 등
     pattern = re.compile(r'(?=\n\s*(?:## |\*\*|\* \*\*|\* )?\d+\.\s)', re.DOTALL)
     items = pattern.split(report_text)
-    
     header = ""
-    parsed_items = []
-
     if not items:
         return "", []
-
-    # 첫 번째 요소가 항목 시작 패턴과 일치하지 않으면 헤더로 간주
     first_item_check = re.match(r'^\s*(?:## |\*\*|\* \*\*|\* )?\d+\.\s', items[0].strip())
     if not first_item_check:
         header = items.pop(0).strip()
-
-    # 나머지 항목들을 정리
     parsed_items = [item.strip() for item in items if item.strip()]
-
     return header, parsed_items
 
-
-def refine_report_with_chat(vector_db, locked_items, unlocked_items, user_request):
+# [수정됨] 잠금 기능이 제거된 보고서 전체 수정 함수
+def refine_report_with_chat(vector_db, original_report, user_request):
     retriever = vector_db.as_retriever(search_kwargs={'k': 5})
-    search_query = user_request + "\n\n" + "\n".join(unlocked_items)
+    search_query = user_request + "\n\n" + original_report
     relevant_docs = retriever.get_relevant_documents(search_query)
     retrieved_context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
+    
     llm = ChatOpenAI(model="gpt-4o", temperature=0.3, openai_api_key=API_KEY)
-    prompt = PromptTemplate.from_template(GRANULAR_REFINEMENT_CHAT_PROMPT)
-    chain = prompt | llm
+    prompt = PromptTemplate.from_template(GENERAL_REPORT_REFINEMENT_PROMPT)
+    chain = prompt | llm | StrOutputParser()
+    
     response = chain.invoke({
-        "locked_items": "\n".join(locked_items),
-        "unlocked_items": "\n".join(unlocked_items),
+        "original_report": original_report,
         "retrieved_context": retrieved_context,
         "user_request": user_request
     })
-    return response.content
+    return response
