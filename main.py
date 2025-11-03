@@ -9,17 +9,13 @@ from utils import (
 st.set_page_config(page_title="대화형 RFP 분석/전략 수립", layout="wide")
 st.title("대화형 RFP 분석 및 제안 전략 수립 🚀")
 
-# --- 세션 상태 초기화 ---
+# --- 세션 상태 초기화 (lock_states 제거) ---
 if 'stage' not in st.session_state:
     st.session_state.stage = 0
 if "reports" not in st.session_state:
     st.session_state.reports = {}
-if "editor_messages" not in st.session_state:
-    st.session_state.editor_messages = []
 if "active_tab_key" not in st.session_state:
     st.session_state.active_tab_key = 'risk'
-if "lock_states" not in st.session_state:
-    st.session_state.lock_states = {"risk": {}, "ksf": {}, "outline": {}}
 
 # --- 사이드바 ---
 with st.sidebar:
@@ -58,33 +54,24 @@ with st.sidebar:
     st.header("2. 분석 단계 실행")
     if st.session_state.get("vector_db"):
         if st.button("단계 1: 리스크 분석", disabled=(st.session_state.stage >= 1), type="primary"):
-            report_text = generate_risk_report(st.session_state.vector_db)
-            st.session_state.reports['risk'] = report_text
-            _, items = parse_report_items(report_text)
-            st.session_state.lock_states['risk'] = {i+1: False for i in range(len(items))}
+            st.session_state.reports['risk'] = generate_risk_report(st.session_state.vector_db)
             st.session_state.stage = 1
             st.session_state.active_tab_key = 'risk'
             st.rerun()
 
         if st.button("단계 2: 핵심 성공 요소 분석", disabled=(st.session_state.stage < 1 or st.session_state.stage >= 2), type="primary"):
-            report_text = generate_ksf_report(st.session_state.vector_db, st.session_state.reports['risk'])
-            st.session_state.reports['ksf'] = report_text
-            _, items = parse_report_items(report_text)
-            st.session_state.lock_states['ksf'] = {i+1: False for i in range(len(items))}
+            st.session_state.reports['ksf'] = generate_ksf_report(st.session_state.vector_db, st.session_state.reports['risk'])
             st.session_state.stage = 2
             st.session_state.active_tab_key = 'ksf'
             st.rerun()
 
         if st.button("단계 3: 제안 목차 생성", disabled=(st.session_state.stage < 2 or st.session_state.stage >= 3), type="primary"):
-            report_text = generate_outline_report(
+            st.session_state.reports['outline'] = generate_outline_report(
                 st.session_state.vector_db,
                 st.session_state.project_summary,
                 st.session_state.reports['risk'],
                 st.session_state.reports['ksf']
             )
-            st.session_state.reports['outline'] = report_text
-            _, items = parse_report_items(report_text)
-            st.session_state.lock_states['outline'] = {i+1: False for i in range(len(items))}
             st.session_state.stage = 3
             st.session_state.active_tab_key = 'outline'
             st.rerun()
@@ -113,62 +100,28 @@ else:
                 st.markdown(header)
                 st.divider()
 
-            for i, item_text in enumerate(items):
-                item_id = i + 1
-                is_locked = st.checkbox(
-                    f"항목 {item_id} 잠금",
-                    key=f"lock_{active_key}_{item_id}",
-                    value=st.session_state.lock_states[active_key].get(item_id, False)
-                )
-                st.session_state.lock_states[active_key][item_id] = is_locked
-                
-                if is_locked:
-                    st.markdown(f"<div style='background-color:#f0f2f6; padding: 10px; border-radius: 5px;'>{item_text}</div>", unsafe_allow_html=True)
-                else:
-                    st.markdown(item_text)
+            # [수정됨] 체크박스 및 관련 UI 로직 완전 제거
+            for item_text in items:
+                st.markdown(item_text)
                 st.divider()
 
     with left_col:
         st.header("✍️ 대화형 편집기")
         if available_keys:
             active_key = st.session_state.active_tab_key
-            st.info(f"현재 **'{report_options[active_key]}'** 보고서의 **잠금 해제된 항목**을 수정합니다.")
+            # [수정됨] 안내 메시지 변경
+            st.info(f"현재 **'{report_options[active_key]}'** 보고서 **전체**를 대상으로 수정합니다.")
             
             if prompt := st.chat_input("수정 요청 사항을 입력하세요..."):
-                header, items = parse_report_items(st.session_state.reports.get(active_key, ""))
+                original_report = st.session_state.reports.get(active_key, "")
                 
-                current_lock_states = st.session_state.lock_states[active_key]
-                locked_items = [text for i, text in enumerate(items) if current_lock_states.get(i + 1, False)]
-                unlocked_items = [text for i, text in enumerate(items) if not current_lock_states.get(i + 1, False)]
-
-                if not unlocked_items:
-                    st.warning("수정할 항목이 없습니다. 최소 하나 이상의 항목을 잠금 해제해주세요.")
-                else:
-                    with st.spinner("선택된 항목을 수정 중입니다..."):
-                        updated_unlocked_text = refine_report_with_chat(
-                            st.session_state.vector_db, locked_items, unlocked_items, prompt
-                        )
-                        _, updated_unlocked_items = parse_report_items("\n" + updated_unlocked_text)
-                        
-                        new_report_items = []
-                        unlocked_idx = 0
-                        for i in range(len(items)):
-                            item_id = i + 1
-                            if current_lock_states.get(item_id, False):
-                                new_report_items.append(items[i])
-                            else:
-                                if unlocked_idx < len(updated_unlocked_items):
-                                    new_report_items.append(updated_unlocked_items[unlocked_idx])
-                                    unlocked_idx += 1
-                                else:
-                                    new_report_items.append(items[i]) 
-                        
-                        final_report = header + "\n\n" + "\n\n".join(new_report_items)
-                        st.session_state.reports[active_key] = final_report
-                        st.success(f"'{report_options[active_key]}' 보고서를 수정했습니다.")
-                        st.rerun()
+                # [수정됨] 잠금/해제 로직 제거, 보고서 전체를 수정하도록 변경
+                with st.spinner("보고서 전체를 수정 중입니다..."):
+                    new_full_report = refine_report_with_chat(
+                        st.session_state.vector_db, original_report, prompt
+                    )
+                    st.session_state.reports[active_key] = new_full_report
+                    st.success(f"'{report_options[active_key]}' 보고서를 수정했습니다.")
+                    st.rerun()
         else:
             st.info("먼저 분석 단계를 실행하여 수정할 보고서를 생성해주세요.")
-
-
-
