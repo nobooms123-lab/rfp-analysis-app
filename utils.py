@@ -11,7 +11,7 @@ from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 from prompts import (
     RISK_ANALYSIS_PROMPT, KSF_ANALYSIS_PROMPT, HOLISTIC_PRESENTATION_STORYLINE_PROMPT,
-    HYDE_PROMPT, REFINEMENT_CHAT_PROMPT
+    HYDE_PROMPT, GRANULAR_REFINEMENT_CHAT_PROMPT
 )
 
 API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
@@ -90,17 +90,27 @@ def generate_outline_report(_vector_db, final_risk_report, final_ksf_report):
         search_k=15
     )
 
-def refine_report_with_chat(vector_db, report_context, user_request):
+def parse_report_items(report_text):
+    pattern = re.compile(r'(?=\n(?:## |\*\*|\* \*\*)\d+\..*?)', re.DOTALL)
+    items = pattern.split(report_text)
+    parsed_items = [item.strip() for item in items if item and re.search(r'^(?:## |\*\*|\* \*\*)\d+\.', item.strip())]
+    header = items[0].strip() if items and not re.search(r'^(?:## |\*\*|\* \*\*)\d+\.', items[0].strip()) else ""
+    return header, parsed_items
+
+def refine_report_with_chat(vector_db, locked_items, unlocked_items, user_request):
     retriever = vector_db.as_retriever(search_kwargs={'k': 5})
-    relevant_docs = retriever.get_relevant_documents(user_request)
+    search_query = user_request + "\n\n" + "\n".join(unlocked_items)
+    relevant_docs = retriever.get_relevant_documents(search_query)
     retrieved_context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=API_KEY)
-    prompt = PromptTemplate.from_template(REFINEMENT_CHAT_PROMPT)
+
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.3, openai_api_key=API_KEY)
+    prompt = PromptTemplate.from_template(GRANULAR_REFINEMENT_CHAT_PROMPT)
     chain = prompt | llm
+    
     response = chain.invoke({
-        "report_context": report_context,
+        "locked_items": "\n".join(locked_items),
+        "unlocked_items": "\n".join(unlocked_items),
         "retrieved_context": retrieved_context,
         "user_request": user_request
     })
     return response.content
-
