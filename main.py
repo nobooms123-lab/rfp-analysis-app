@@ -1,5 +1,4 @@
 # main.py
-
 import streamlit as st
 from utils import (
     extract_text_from_file, create_vector_db, extract_project_summary,
@@ -30,22 +29,29 @@ with st.sidebar:
     if uploaded_file and st.session_state.get("uploaded_filename") != uploaded_file.name:
         st.session_state.clear()
         st.session_state.uploaded_filename = uploaded_file.name
-        raw_text = extract_text_from_file(uploaded_file)
-        if raw_text:
-            st.session_state.raw_text = raw_text # [신규] 원본 텍스트 저장
-            st.session_state.source_file_type = uploaded_file.type # [신규] 파일 타입 저장
-            st.session_state.vector_db = create_vector_db(raw_text)
+        
+        # [수정] 원본 텍스트와 AI가 정제한 텍스트를 모두 반환받음
+        raw_text, refined_text = extract_text_from_file(uploaded_file)
+        
+        if refined_text:
+            st.session_state.raw_text = raw_text # 다운로드 및 비교용 원본
+            st.session_state.refined_text = refined_text # AI 분석용 정제본
+            st.session_state.source_file_type = uploaded_file.type
+            
+            # [수정] 벡터 DB는 정제된 텍스트로 생성
+            st.session_state.vector_db = create_vector_db(st.session_state.refined_text)
             st.session_state.project_summary = extract_project_summary(st.session_state.vector_db)
             st.session_state.stage = 0
         st.rerun()
 
-    # [신규] 추출된 텍스트 다운로드 버튼 (PDF 업로드 시에만 표시)
+    # [수정] 다운로드 버튼은 OCR 원본 텍스트를 다운로드하도록 라벨 변경
     if st.session_state.get("source_file_type") == "application/pdf" and st.session_state.get("raw_text"):
         st.download_button(
-            label="📥 추출된 원본 텍스트 다운로드",
+            label="📥 (참고용) OCR 원본 텍스트 다운로드",
             data=st.session_state.raw_text.encode('utf-8'),
-            file_name=f"{st.session_state.uploaded_filename.split('.')[0]}_extracted.txt",
-            mime="text/plain"
+            file_name=f"{st.session_state.uploaded_filename.split('.')[0]}_extracted_raw.txt",
+            mime="text/plain",
+            help="AI가 자동으로 정제하기 전의, PDF에서 추출된 원본 텍스트입니다."
         )
 
     if st.session_state.get("project_summary"):
@@ -59,13 +65,11 @@ with st.sidebar:
             st.session_state.stage = 1
             st.session_state.active_tab_key = 'risk'
             st.rerun()
-
         if st.button("단계 2: 핵심 성공 요소 분석", disabled=(st.session_state.stage < 1 or st.session_state.stage >= 2), type="primary"):
             st.session_state.reports['ksf'] = generate_ksf_report(st.session_state.vector_db, st.session_state.reports['risk'])
             st.session_state.stage = 2
             st.session_state.active_tab_key = 'ksf'
             st.rerun()
-            
         if st.button("단계 3: 제안 목차 생성", disabled=(st.session_state.stage < 2 or st.session_state.stage >= 3), type="primary"):
             st.session_state.reports['outline'] = generate_outline_report(
                 st.session_state.vector_db,
@@ -82,10 +86,9 @@ if st.session_state.stage == 0:
     st.info("⬅️ 왼쪽 사이드바에서 문서를 업로드하고 분석 단계를 시작해주세요.")
 else:
     left_col, right_col = st.columns([2, 3])
-
     report_options = {"risk": "📊 리스크 분석", "ksf": "🔑 KSF", "outline": "📑 목차"}
     available_keys = [k for i, k in enumerate(report_options.keys()) if st.session_state.stage > i]
-
+    
     with right_col:
         st.header("📄 분석 보고서")
         if available_keys:
@@ -94,11 +97,10 @@ else:
                 format_func=lambda k: report_options[k], key='active_tab_key',
                 label_visibility="collapsed", horizontal=True,
             )
-            
             active_key = st.session_state.active_tab_key
             report_text = st.session_state.reports.get(active_key, "")
-            
             header, items = parse_report_items(report_text)
+            
             if header:
                 st.markdown(header)
                 st.divider()
@@ -106,7 +108,7 @@ else:
             for i, item_text in enumerate(items):
                 item_id = i + 1
                 is_locked = st.checkbox(
-                    f"항목 {item_id} 잠금", 
+                    f"항목 {item_id} 잠금",
                     key=f"lock_{active_key}_{item_id}",
                     value=st.session_state.lock_states[active_key].get(item_id, False)
                 )
@@ -123,10 +125,9 @@ else:
         if available_keys:
             active_key = st.session_state.active_tab_key
             st.info(f"현재 **'{report_options[active_key]}'** 보고서의 **잠금 해제된 항목**을 수정합니다.")
-
+            
             if prompt := st.chat_input("수정 요청 사항을 입력하세요..."):
                 header, items = parse_report_items(st.session_state.reports.get(active_key, ""))
-                
                 locked_items = [text for i, text in enumerate(items) if st.session_state.lock_states[active_key].get(i + 1, False)]
                 unlocked_items = [text for i, text in enumerate(items) if not st.session_state.lock_states[active_key].get(i + 1, False)]
 
@@ -137,7 +138,6 @@ else:
                         updated_unlocked_text = refine_report_with_chat(
                             st.session_state.vector_db, locked_items, unlocked_items, prompt
                         )
-                        
                         _, updated_unlocked_items = parse_report_items("\n" + updated_unlocked_text)
                         
                         new_report_items = []
@@ -151,8 +151,9 @@ else:
                                     new_report_items.append(updated_unlocked_items[unlocked_idx])
                                     unlocked_idx += 1
                                 else:
-                                    new_report_items.append(items[i])
-
+                                    # 만약 AI가 일부 항목을 누락했다면 원본으로 채움
+                                    new_report_items.append(items[i]) 
+                        
                         final_report = header + "\n\n" + "\n\n".join(new_report_items)
                         st.session_state.reports[active_key] = final_report
                         st.success(f"'{report_options[active_key]}' 보고서를 수정했습니다.")
