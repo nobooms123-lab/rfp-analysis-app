@@ -60,7 +60,6 @@ with st.sidebar:
         if st.button("단계 1: 리스크 분석", disabled=(st.session_state.stage >= 1), type="primary"):
             report_text = generate_risk_report(st.session_state.vector_db)
             st.session_state.reports['risk'] = report_text
-            # [수정] 리스크 보고서 생성 시 잠금 상태를 명시적으로 초기화
             _, items = parse_report_items(report_text)
             st.session_state.lock_states['risk'] = {i+1: False for i in range(len(items))}
             st.session_state.stage = 1
@@ -70,7 +69,6 @@ with st.sidebar:
         if st.button("단계 2: 핵심 성공 요소 분석", disabled=(st.session_state.stage < 1 or st.session_state.stage >= 2), type="primary"):
             report_text = generate_ksf_report(st.session_state.vector_db, st.session_state.reports['risk'])
             st.session_state.reports['ksf'] = report_text
-            # [수정] KSF 보고서 생성 시 잠금 상태를 명시적으로 초기화
             _, items = parse_report_items(report_text)
             st.session_state.lock_states['ksf'] = {i+1: False for i in range(len(items))}
             st.session_state.stage = 2
@@ -85,7 +83,6 @@ with st.sidebar:
                 st.session_state.reports['ksf']
             )
             st.session_state.reports['outline'] = report_text
-            # [수정] 목차 보고서 생성 시 잠금 상태를 명시적으로 초기화
             _, items = parse_report_items(report_text)
             st.session_state.lock_states['outline'] = {i+1: False for i in range(len(items))}
             st.session_state.stage = 3
@@ -118,7 +115,6 @@ else:
 
             for i, item_text in enumerate(items):
                 item_id = i + 1
-                # [수정] value를 세션 상태에서 직접 읽어오도록 변경 (get의 기본값 의존도 감소)
                 is_locked = st.checkbox(
                     f"항목 {item_id} 잠금",
                     key=f"lock_{active_key}_{item_id}",
@@ -141,7 +137,6 @@ else:
             if prompt := st.chat_input("수정 요청 사항을 입력하세요..."):
                 header, items = parse_report_items(st.session_state.reports.get(active_key, ""))
                 
-                # [수정] 잠금/해제 항목을 결정하는 로직을 더 명확하게 변경
                 current_lock_states = st.session_state.lock_states[active_key]
                 locked_items = [text for i, text in enumerate(items) if current_lock_states.get(i + 1, False)]
                 unlocked_items = [text for i, text in enumerate(items) if not current_lock_states.get(i + 1, False)]
@@ -174,5 +169,6 @@ else:
                         st.rerun()
         else:
             st.info("먼저 분석 단계를 실행하여 수정할 보고서를 생성해주세요.")
+
 
 
