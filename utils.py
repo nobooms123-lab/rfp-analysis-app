@@ -10,18 +10,15 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 from prompts import (
-    RISK_ANALYSIS_PROMPT,
-    KSF_ANALYSIS_PROMPT,
-    # 이전 프롬프트를 새로운 프롬프트로 교체
-    ADVANCED_PRESENTATION_OUTLINE_PROMPT,
-    HYDE_PROMPT
+    RISK_ANALYSIS_PROMPT, KSF_ANALYSIS_PROMPT, ADVANCED_PRESENTATION_OUTLINE_PROMPT,
+    HYDE_PROMPT, REFINEMENT_CHAT_PROMPT
 )
 
 API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+if not API_KEY:
+    st.error("OpenAI API 키가 설정되지 않았습니다. st.secrets 또는 환경변수를 확인해주세요.")
 
-# --- extract_text_from_file, create_vector_db, run_analysis_with_hyde 함수는 이전과 동일 ---
 def extract_text_from_file(uploaded_file):
-    # ... (이전 코드와 동일) ...
     if uploaded_file.type == "application/pdf":
         try:
             file_bytes = uploaded_file.getvalue()
@@ -42,7 +39,6 @@ def extract_text_from_file(uploaded_file):
 
 @st.cache_resource(show_spinner="문서를 분석하여 AI가 이해할 수 있도록 준비 중입니다...")
 def create_vector_db(text):
-    # ... (이전 코드와 동일) ...
     if not text: return None
     try:
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
@@ -56,7 +52,6 @@ def create_vector_db(text):
         return None
 
 def run_analysis_with_hyde(vector_db, final_prompt_template, user_question, search_k=10):
-    # ... (이전 코드와 동일) ...
     hyde_llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=API_KEY)
     hyde_prompt = PromptTemplate.from_template(HYDE_PROMPT)
     hyde_chain = hyde_prompt | hyde_llm
@@ -70,56 +65,46 @@ def run_analysis_with_hyde(vector_db, final_prompt_template, user_question, sear
     response = final_chain.invoke({"context": context})
     return response.content
 
-# [수정됨] 목차 생성을 위한 별도 분석 함수
-def run_outline_analysis(vector_db, ksf_report, user_question, search_k=15):
-    """KSF 보고서를 추가 입력으로 받아 목차를 생성하는 함수"""
-    # 1. HyDE를 사용하여 RFP 원본에서 관련 내용 검색
+@st.cache_data(show_spinner="단계 1: 제안사 관점의 리스크를 분석 중입니다...")
+def generate_risk_report(_vector_db):
+    question = "이 RFP를 분석하여, 제안사 입장에서의 잠재적 리스크와 도전 과제를 관리 전략과 함께 설명해줘."
+    return run_analysis_with_hyde(_vector_db, RISK_ANALYSIS_PROMPT, question)
+
+@st.cache_data(show_spinner="단계 2: 핵심 성공 요소를 도출 중입니다...")
+def generate_ksf_report(_vector_db):
+    question = "이 RFP와 식별된 리스크를 바탕으로, 경쟁에서 승리하기 위한 핵심 성공 요소(KSF)를 도출해줘."
+    return run_analysis_with_hyde(_vector_db, KSF_ANALYSIS_PROMPT, question)
+
+@st.cache_data(show_spinner="단계 3: KSF 기반 발표자료 목차 초안을 작성 중입니다...")
+def generate_outline_report(_vector_db, _ksf_report):
+    question = "이 RFP의 전반적인 내용과 목표, 요구사항을 종합적으로 요약해줘."
+    
     hyde_llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=API_KEY)
     hyde_prompt = PromptTemplate.from_template(HYDE_PROMPT)
     hyde_chain = hyde_prompt | hyde_llm
-    hypothetical_document = hyde_chain.invoke({"question": user_question}).content
-    retriever = vector_db.as_retriever(search_kwargs={'k': search_k})
+    hypothetical_document = hyde_chain.invoke({"question": question}).content
+    retriever = _vector_db.as_retriever(search_kwargs={'k': 15})
     relevant_docs = retriever.get_relevant_documents(hypothetical_document)
     context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
 
-    # 2. 검색된 RFP 내용과 KSF 보고서를 합쳐 최종 답변 생성
     final_llm = ChatOpenAI(model="gpt-4o", temperature=0.3, openai_api_key=API_KEY)
     final_prompt = PromptTemplate.from_template(ADVANCED_PRESENTATION_OUTLINE_PROMPT)
     final_chain = final_prompt | final_llm
-    # [핵심] invoke에 ksf_report를 추가로 전달
-    response = final_chain.invoke({"context": context, "ksf_report": ksf_report})
+    response = final_chain.invoke({"context": context, "ksf_report": _ksf_report})
     return response.content
 
-# [수정됨] 3가지 분석을 '연계하여' 실행하는 메인 함수
-def generate_all_reports(vector_db):
-    if not vector_db:
-        return None, None, None
+def refine_report_with_chat(vector_db, report_context, user_request):
+    retriever = vector_db.as_retriever(search_kwargs={'k': 5})
+    relevant_docs = retriever.get_relevant_documents(user_request)
+    retrieved_context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
+
+    llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=API_KEY)
+    prompt = PromptTemplate.from_template(REFINEMENT_CHAT_PROMPT)
+    chain = prompt | llm
     
-    risk_question = "이 사업 RFP를 분석하여, 제안사 입장에서의 잠재적 리스크와 독소 조항을 식별해줘."
-    ksf_question = "이 사업 RFP를 분석하여, 경쟁에서 승리하기 위한 핵심 성공 요소(KSF) 3~5가지를 도출해줘."
-    outline_question = "이 사업 RFP의 전반적인 내용과 목표, 요구사항을 종합적으로 요약해줘." # 목차 생성을 위한 일반적인 검색어
-
-    # 1. 리스크와 KSF를 먼저 분석 (병렬 또는 순차 가능)
-    with st.spinner("1/3. 제안사 관점의 리스크를 분석 중입니다..."):
-        risk_report = run_analysis_with_hyde(
-            vector_db, RISK_ANALYSIS_PROMPT, risk_question
-        )
-
-    with st.spinner("2/3. 핵심 성공 요소를 도출 중입니다..."):
-        ksf_report = run_analysis_with_hyde(
-            vector_db, KSF_ANALYSIS_PROMPT, ksf_question
-        )
-
-    # 3. KSF 분석 결과를 바탕으로 목차 생성
-    with st.spinner("3/3. KSF 기반 발표자료 목차 초안을 작성 중입니다..."):
-        outline_report = run_outline_analysis(
-            vector_db,
-            ksf_report, # [핵심] KSF 결과를 입력으로 전달
-            outline_question
-        )
-        
-    return risk_report, ksf_report, outline_report
-
-
-
-
+    response = chain.invoke({
+        "report_context": report_context,
+        "retrieved_context": retrieved_context,
+        "user_request": user_request
+    })
+    return response.content
