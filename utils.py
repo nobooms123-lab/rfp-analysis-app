@@ -10,7 +10,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 from prompts import (
-    RISK_ANALYSIS_PROMPT, KSF_ANALYSIS_PROMPT, ADVANCED_PRESENTATION_OUTLINE_PROMPT,
+    RISK_ANALYSIS_PROMPT, KSF_ANALYSIS_PROMPT, HOLISTIC_PRESENTATION_STORYLINE_PROMPT,
     HYDE_PROMPT, REFINEMENT_CHAT_PROMPT
 )
 
@@ -84,7 +84,7 @@ def generate_outline_report(_vector_db, final_risk_report, final_ksf_report):
     question = "이 RFP의 전반적인 내용과 목표, 요구사항을 종합하여 발표자료의 흐름을 잡아줘."
     return run_analysis_with_inputs(
         _vector_db,
-        ADVANCED_PRESENTATION_OUTLINE_PROMPT,
+        HOLISTIC_PRESENTATION_STORYLINE_PROMPT,
         question,
         inputs={"risk_report": final_risk_report, "ksf_report": final_ksf_report},
         search_k=15
