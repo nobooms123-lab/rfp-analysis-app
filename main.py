@@ -15,20 +15,35 @@ with st.sidebar:
         type=["pdf", "txt"]
     )
 
+    # [수정] 파일이 업로드되면 텍스트를 즉시 추출하고 세션에 저장
     if uploaded_file:
         # 파일이 변경되면 기존 분석 결과 초기화
         if st.session_state.get("uploaded_filename") != uploaded_file.name:
-            keys_to_clear = ['vector_db', 'risk_report', 'ksf_report', 'outline_report', 'analysis_done']
+            keys_to_clear = ['vector_db', 'risk_report', 'ksf_report', 'outline_report', 'analysis_done', 'raw_text', 'source_file_type']
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]
+            
             st.session_state.uploaded_filename = uploaded_file.name
+            # [추가] 원본 텍스트와 파일 타입을 세션에 저장
+            st.session_state.raw_text = extract_text_from_file(uploaded_file)
+            st.session_state.source_file_type = uploaded_file.type
 
-        st.header("2. 분석 실행")
-        if st.button("분석 시작", type="primary", disabled=st.session_state.get('analysis_done', False)):
-            # 벡터 DB 생성 (캐시되어 있으므로 파일이 같으면 재생성 안 함)
-            raw_text = extract_text_from_file(uploaded_file)
-            st.session_state.vector_db = create_vector_db(raw_text)
+    # [추가] OCR 텍스트 다운로드 버튼 (PDF 파일일 경우에만 표시)
+    if st.session_state.get("source_file_type") == "application/pdf" and st.session_state.get("raw_text"):
+        st.download_button(
+            label="📥 OCR 원본 텍스트 다운로드",
+            data=st.session_state.raw_text.encode('utf-8'),
+            file_name=f"{st.session_state.uploaded_filename.split('.')[0]}_ocr.txt",
+            mime="text/plain"
+        )
+
+    st.header("2. 분석 실행")
+    # [수정] 버튼 활성화 조건을 'uploaded_file' 존재 여부로 변경
+    if st.button("분석 시작", type="primary", disabled=(not uploaded_file or st.session_state.get('analysis_done', False))):
+        # [수정] 세션에 저장된 raw_text를 사용
+        if st.session_state.get("raw_text"):
+            st.session_state.vector_db = create_vector_db(st.session_state.raw_text)
             
             if st.session_state.vector_db:
                 # 3가지 리포트 생성
@@ -37,7 +52,10 @@ with st.sidebar:
                 st.session_state.ksf_report = ksf
                 st.session_state.outline_report = outline
                 st.session_state.analysis_done = True
-                st.rerun() # 분석 완료 후 화면을 다시 그려서 결과를 표시
+                st.rerun()
+        else:
+            st.error("파일에서 텍스트를 추출하지 못했습니다. 다른 파일을 시도해주세요.")
+
 
 # --- 2. 메인 화면: 분석 결과 표시 ---
 if not st.session_state.get("analysis_done"):
@@ -60,4 +78,5 @@ else:
     with tab3:
         st.header("제안 발표자료 목차 초안")
         st.markdown(st.session_state.outline_report)
+
 
