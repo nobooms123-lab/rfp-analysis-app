@@ -51,60 +51,56 @@ def create_vector_db(text):
         st.error(f"벡터 DB 생성 중 오류: {e}")
         return None
 
-def run_analysis_with_hyde(vector_db, final_prompt_template, user_question, search_k=10):
+def run_analysis_with_inputs(vector_db, prompt_template, search_query, inputs, search_k=10):
     hyde_llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=API_KEY)
     hyde_prompt = PromptTemplate.from_template(HYDE_PROMPT)
     hyde_chain = hyde_prompt | hyde_llm
-    hypothetical_document = hyde_chain.invoke({"question": user_question}).content
+    hypothetical_document = hyde_chain.invoke({"question": search_query}).content
+    
     retriever = vector_db.as_retriever(search_kwargs={'k': search_k})
     relevant_docs = retriever.get_relevant_documents(hypothetical_document)
-    context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
-    final_llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=API_KEY)
-    final_prompt = PromptTemplate.from_template(final_prompt_template)
+    
+    inputs['context'] = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
+
+    final_llm = ChatOpenAI(model="gpt-4o", temperature=0.3, openai_api_key=API_KEY)
+    final_prompt = PromptTemplate.from_template(prompt_template)
     final_chain = final_prompt | final_llm
-    response = final_chain.invoke({"context": context})
+    
+    response = final_chain.invoke(inputs)
     return response.content
 
 @st.cache_data(show_spinner="단계 1: 제안사 관점의 리스크를 분석 중입니다...")
 def generate_risk_report(_vector_db):
     question = "이 RFP를 분석하여, 제안사 입장에서의 잠재적 리스크와 도전 과제를 관리 전략과 함께 설명해줘."
-    return run_analysis_with_hyde(_vector_db, RISK_ANALYSIS_PROMPT, question)
+    return run_analysis_with_inputs(_vector_db, RISK_ANALYSIS_PROMPT, question, inputs={})
 
 @st.cache_data(show_spinner="단계 2: 핵심 성공 요소를 도출 중입니다...")
-def generate_ksf_report(_vector_db):
+def generate_ksf_report(_vector_db, final_risk_report):
     question = "이 RFP와 식별된 리스크를 바탕으로, 경쟁에서 승리하기 위한 핵심 성공 요소(KSF)를 도출해줘."
-    return run_analysis_with_hyde(_vector_db, KSF_ANALYSIS_PROMPT, question)
+    return run_analysis_with_inputs(_vector_db, KSF_ANALYSIS_PROMPT, question, inputs={"risk_report": final_risk_report})
 
-@st.cache_data(show_spinner="단계 3: KSF 기반 발표자료 목차 초안을 작성 중입니다...")
-def generate_outline_report(_vector_db, _ksf_report):
-    question = "이 RFP의 전반적인 내용과 목표, 요구사항을 종합적으로 요약해줘."
-    
-    hyde_llm = ChatOpenAI(model="gpt-4o", temperature=0, openai_api_key=API_KEY)
-    hyde_prompt = PromptTemplate.from_template(HYDE_PROMPT)
-    hyde_chain = hyde_prompt | hyde_llm
-    hypothetical_document = hyde_chain.invoke({"question": question}).content
-    retriever = _vector_db.as_retriever(search_kwargs={'k': 15})
-    relevant_docs = retriever.get_relevant_documents(hypothetical_document)
-    context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
-
-    final_llm = ChatOpenAI(model="gpt-4o", temperature=0.3, openai_api_key=API_KEY)
-    final_prompt = PromptTemplate.from_template(ADVANCED_PRESENTATION_OUTLINE_PROMPT)
-    final_chain = final_prompt | final_llm
-    response = final_chain.invoke({"context": context, "ksf_report": _ksf_report})
-    return response.content
+@st.cache_data(show_spinner="단계 3: 제안 발표 목차를 생성 중입니다...")
+def generate_outline_report(_vector_db, final_risk_report, final_ksf_report):
+    question = "이 RFP의 전반적인 내용과 목표, 요구사항을 종합하여 발표자료의 흐름을 잡아줘."
+    return run_analysis_with_inputs(
+        _vector_db,
+        ADVANCED_PRESENTATION_OUTLINE_PROMPT,
+        question,
+        inputs={"risk_report": final_risk_report, "ksf_report": final_ksf_report},
+        search_k=15
+    )
 
 def refine_report_with_chat(vector_db, report_context, user_request):
     retriever = vector_db.as_retriever(search_kwargs={'k': 5})
     relevant_docs = retriever.get_relevant_documents(user_request)
     retrieved_context = "\n\n---\n\n".join([doc.page_content for doc in relevant_docs])
-
     llm = ChatOpenAI(model="gpt-4o", temperature=0.2, openai_api_key=API_KEY)
     prompt = PromptTemplate.from_template(REFINEMENT_CHAT_PROMPT)
     chain = prompt | llm
-    
     response = chain.invoke({
         "report_context": report_context,
         "retrieved_context": retrieved_context,
         "user_request": user_request
     })
     return response.content
+
